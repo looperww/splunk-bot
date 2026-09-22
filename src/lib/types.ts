@@ -21,6 +21,13 @@ export type SearchAudit = {
   truncated:boolean;
 };
 
+export type AgentBudget = {
+  searchesUsed:number;
+  searchLimit:number;
+  toolRounds:number;
+  toolRoundLimit:number;
+};
+
 export type InvestigationQuestion = {
   id:string;
   question:string;
