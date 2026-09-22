@@ -307,10 +307,10 @@ export async function investigate(
   connectionId?:string,
 ){
   const env=getEnv();
+  if(!connectionId){
+    throw new Error("A Splunk connection is required before starting an investigation.");
+  }
   if(!env.openAiApiKey||env.aiProvider==="mock"){
-    if(!connectionId){
-      throw new Error("A Splunk connection is required before starting an investigation.");
-    }
     return investigateLocally(eventContext,scope,connectionId);
   }
 
@@ -335,6 +335,7 @@ export async function investigate(
     truncated:boolean;
     phase:"baseline"|"pivot"|"confirmation";
     cached:boolean;
+    evidencePreview?:Record<string,unknown>[];
   }>=[];
   const cache=new Map<string,Awaited<ReturnType<typeof searchSplunk>>>();
 
