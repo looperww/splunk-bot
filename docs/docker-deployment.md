@@ -9,8 +9,8 @@ cd splunk-bot
 
 ## 2. Create the runtime environment file
 
-cp .env.docker.example .env.docker
-chmod 600 .env.docker
+cp .env.example .env
+chmod 600 .env
 
 Set at least:
 
