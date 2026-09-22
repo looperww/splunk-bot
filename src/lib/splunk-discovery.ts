@@ -55,35 +55,31 @@ async function splunkRest<T=unknown>(
   params:Record<string,string|number>={},
 ):Promise<T>{
   const url=new URL(endpoint,baseUrl);
-  for(const [key,value] of Object.entries(params)) url.searchParams.set(key,String(value));
-
-  const body=new URLSearchParams({
-    search,
-    earliest_time:"-30d",
-    latest_time:"now",
-    output_mode:"json",
-    preview:"false",
-  });
+  for(const [key,value] of Object.entries(params)) {
+    url.searchParams.set(key,String(value));
+  }
 
   const response=await fetch(url,{
-    method:"POST",
+    method:"GET",
     headers:{
       Authorization:"Bearer "+token,
       Accept:"application/json",
-      "Content-Type":"application/x-www-form-urlencoded",
     },
-    body,
     cache:"no-store",
     signal:AbortSignal.timeout(30000),
   });
 
   const text=await response.text();
   if(!response.ok){
-    throw new Error("Splunk API "+endpoint+" failed ("+response.status+"): "+text.slice(0,800));
+    throw new Error(
+      "Splunk API "+endpoint+" failed ("+response.status+"): "+text.slice(0,800),
+    );
   }
 
   try{return JSON.parse(text) as T;}
-  catch{throw new Error("Splunk API "+endpoint+" returned non-JSON data.");}
+  catch{
+    throw new Error("Splunk API "+endpoint+" returned non-JSON data.");
+  }
 }
 
 export async function testSplunkConnection(input:{
