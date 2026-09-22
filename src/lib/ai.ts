@@ -397,6 +397,7 @@ export async function investigate(
           truncated:result.truncated,
           phase:args.phase,
           cached,
+          evidencePreview:result.results.slice(0,10),
         });
 
         outputs.push({
