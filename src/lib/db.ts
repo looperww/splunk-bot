@@ -1,4 +1,5 @@
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { INCIDENT_SCENARIOS } from "@/lib/incident-scenarios";
 
 let pool:Pool|undefined;
 let schemaReady:Promise<void>|undefined;
@@ -223,6 +224,47 @@ async function createSchema():Promise<void>{
       CREATE INDEX IF NOT EXISTS splunk_alert_cache_connection_idx
         ON splunk_alert_cache(connection_id, source_order);
 
+      CREATE TABLE IF NOT EXISTS incident_scenarios (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'General',
+        description TEXT NOT NULL DEFAULT '',
+        objective TEXT NOT NULL DEFAULT '',
+        focus TEXT NOT NULL DEFAULT '',
+        target_field_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+        time_field_id TEXT,
+        fields JSONB NOT NULL DEFAULT '[]'::jsonb,
+        is_system_default BOOLEAN NOT NULL DEFAULT FALSE,
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS incident_scenarios_enabled_idx
+        ON incident_scenarios(is_enabled, category, name);
+
+      CREATE TABLE IF NOT EXISTS incidents (
+        id TEXT PRIMARY KEY,
+        scenario_id TEXT REFERENCES incident_scenarios(id) ON DELETE SET NULL,
+        scenario_name TEXT NOT NULL,
+        connection_id TEXT REFERENCES splunk_connections(id) ON DELETE SET NULL,
+        ame_event_id TEXT,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'open',
+        context JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS incidents_created_idx
+        ON incidents(created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS incidents_connection_idx
+        ON incidents(connection_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS incidents_status_idx
+        ON incidents(status, updated_at DESC);
+
       INSERT INTO investigation_agents(
         id,name,description,instructions,is_default
       ) VALUES(
@@ -232,6 +274,26 @@ async function createSchema():Promise<void>{
         'Use the governed baseline, pivot, confirmation, and reporting workflow.',
         TRUE
       ) ON CONFLICT(id) DO NOTHING;
+
+      for (const scenario of INCIDENT_SCENARIOS) {
+        await client.query(
+          `INSERT INTO incident_scenarios(
+             id,name,category,description,objective,focus,target_field_ids,time_field_id,fields,is_system_default,is_enabled
+           ) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,TRUE,TRUE)
+           ON CONFLICT(id) DO NOTHING`,
+          [
+            scenario.id,
+            scenario.name,
+            scenario.category,
+            scenario.description,
+            scenario.objective,
+            scenario.focus,
+            JSON.stringify(scenario.targetFieldIds),
+            scenario.timeFieldId ?? null,
+            JSON.stringify(scenario.fields),
+          ],
+        );
+      }
     `);
   });
 }
