@@ -64,6 +64,7 @@ export type IncidentContext = {
   scenarioId: string;
   scenarioName: string;
   objective: string;
+  focus: string;
   target: string;
   detectedAt?: string;
   summary: string;
