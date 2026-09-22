@@ -9,6 +9,7 @@ import {
   type InvestigationScope,
 } from "@/lib/investigation";
 import { selectSkills } from "@/lib/skill-router";
+import { buildKnowledgePrompt, getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import {
   AGENT_CONFIG,
   buildAgentPrompt,
@@ -310,7 +311,8 @@ export async function investigate(
   }
 
   const skills=selectSkills(scope,4);
-  const developerPrompt=buildAgentPrompt(scope,skills,eventContext);
+  const knowledge=await getSplunkKnowledge(connectionId);
+  const developerPrompt=buildAgentPrompt(scope,skills,eventContext)+"\n\n"+buildKnowledgePrompt(knowledge);
 
   let response=await callAI(
     env.openAiApiKey,
