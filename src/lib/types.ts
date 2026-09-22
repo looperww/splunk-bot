@@ -61,6 +61,7 @@ export type InvestigationScope = {
 
 
 export type IncidentContext = {
+  incidentId?: string;
   scenarioId: string;
   scenarioName: string;
   objective: string;
