@@ -20,11 +20,13 @@ type KnowledgeResponse={
 type Props={
   connectionId:string|null;
   onConnectionReady:(connection:StoredSplunkConnection)=>void;
+  onConnectionDeleted:()=>void;
 };
 
 export default function SplunkConnectionPanel({
   connectionId,
   onConnectionReady,
+  onConnectionDeleted,
 }:Props){
   const [connections,setConnections]=useState<StoredSplunkConnection[]>([]);
   const [name,setName]=useState("Splunk");
@@ -33,7 +35,7 @@ export default function SplunkConnectionPanel({
   const [status,setStatus]=useState("");
   const [error,setError]=useState("");
   const [busy,setBusy]=useState<
-    "loading"|"testing"|"saving"|"rediscovering"|""|null
+    "loading"|"testing"|"saving"|"rediscovering"|"deleting"|""|null
   >("loading");
   const [knowledge,setKnowledge]=useState<KnowledgeResponse["knowledge"]>();
 
@@ -217,6 +219,66 @@ export default function SplunkConnectionPanel({
         err instanceof Error
           ?err.message
           :"Failed to save Splunk connection.",
+      );
+    }finally{
+      setBusy(null);
+    }
+  }
+
+  async function deleteStoredConnection(){
+    if(!connectionId||busy!==null) return;
+
+    const connection=connections.find((item)=>item.id===connectionId);
+    const connectionName=connection?.name??"this Splunk connection";
+
+    if(!window.confirm(
+      "Delete "+connectionName+"? This removes the saved token and cached discovery data from this application."
+    )){
+      return;
+    }
+
+    setError("");
+    setStatus("");
+    setBusy("deleting");
+
+    try{
+      const response=await fetch(
+        "/api/splunk/connections/"+encodeURIComponent(connectionId),
+        {method:"DELETE"},
+      );
+
+      const data=await response.json() as {
+        ok?:boolean;
+        error?:string;
+      };
+
+      if(!response.ok||!data.ok){
+        throw new Error(
+          data.error??"Failed to delete Splunk connection.",
+        );
+      }
+
+      const remaining=connections.filter((item)=>item.id!==connectionId);
+      setConnections(remaining);
+      setToken("");
+
+      onConnectionDeleted();
+
+      if(remaining[0]){
+        onConnectionReady(remaining[0]);
+        setStatus(
+          "Deleted "+connectionName+". Switched to "+remaining[0].name+".",
+        );
+      }else{
+        setStatus(
+          "Deleted "+connectionName+". No saved Splunk connections remain.",
+        );
+      }
+    }catch(err){
+      setError(
+        err instanceof Error
+          ?err.message
+          :"Failed to delete Splunk connection.",
       );
     }finally{
       setBusy(null);
@@ -420,6 +482,15 @@ export default function SplunkConnectionPanel({
           onClick={()=>void testStoredConnection()}
         >
           {busy==="testing"?"Testing…":"Test stored token"}
+        </button>}
+
+      {connectionId&&
+        <button
+          className="secondary-button"
+          disabled={busy!==null}
+          onClick={()=>void deleteStoredConnection()}
+        >
+          {busy==="deleting"?"Deleting…":"Delete connection"}
         </button>}
 
       {connectionId&&
