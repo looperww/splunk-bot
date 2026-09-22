@@ -263,12 +263,25 @@ export default function IncidentsPage(){
   }
 
   function updateField(index:number,patch:Partial<IncidentField>){
-    setDraft((current)=>({
-      ...current,
-      fields:current.fields.map((field,fieldIndex)=>(
+    setDraft((current)=>{
+      const existing=current.fields[index];
+      const nextFields=current.fields.map((field,fieldIndex)=>(
         fieldIndex===index?{...field,...patch}:field
-      )),
-    }));
+      ));
+
+      if(existing?.id&&patch.id&&patch.id!==existing.id){
+        return {
+          ...current,
+          fields:nextFields,
+          targetFieldIds:current.targetFieldIds.map((id)=>(
+            id===existing.id?patch.id!:id
+          )),
+          timeFieldId:current.timeFieldId===existing.id?patch.id:current.timeFieldId,
+        };
+      }
+
+      return {...current,fields:nextFields};
+    });
   }
 
   function addField(){
