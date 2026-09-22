@@ -8,6 +8,7 @@ export async function POST(request: NextRequest){
     const body=(await request.json()) as {
       messages?:ChatMessage[];
       eventContext?:Record<string,unknown>;
+      connectionId?:string;
     };
 
     if(!Array.isArray(body.messages)){
@@ -34,6 +35,10 @@ export async function POST(request: NextRequest){
     }
 
     const env=getEnv();
+    const connectionId=String(body.connectionId??body.eventContext?.connectionId??"").trim();
+    if(!connectionId){
+      return NextResponse.json({error:"A Splunk connection must be selected before investigating."},{status:400});
+    }
     const plan=await planInvestigation(messages,body.eventContext);
 
     if(plan.status==="clarification_needed"){
@@ -85,6 +90,7 @@ export async function POST(request: NextRequest){
       messages,
       body.eventContext,
       plan.scope,
+      connectionId,
     );
 
     return NextResponse.json({
