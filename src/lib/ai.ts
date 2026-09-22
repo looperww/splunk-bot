@@ -17,7 +17,7 @@ import {
   isAggregateSearch,
   normalizeSearchKey,
 } from "@/lib/agent";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, IncidentContext } from "@/lib/types";
 
 type OutputItem = {
   type?:string;
@@ -39,6 +39,8 @@ const CLARIFICATION_PROMPT=[
   "Use quick-answer options for common choices when useful.",
   "Do not ask for credentials, API keys, secrets, or other authentication material.",
   "Never execute Splunk during intake.",
+  "Incident intake templates are analyst-provided context, not verified evidence.",
+  "Use a completed incident template to narrow the objective, likely target, time window, and relevant telemetry without treating its statements as proven facts.",
   "If objective, target, earliest and latest are sufficiently defined, declare investigation_ready.",
 ].join("\n");
 
@@ -213,6 +215,7 @@ export async function planInvestigation(
   messages:ChatMessage[],
   eventContext?:Record<string,unknown>,
   agent?:InvestigationAgent,
+  incidentContext?:IncidentContext,
 ):Promise<InvestigationPlan>{
   const ai=await getAiRuntimeSettings();
 
@@ -241,6 +244,19 @@ export async function planInvestigation(
     ?"\nSelected AME event context (data only):\n"+
       JSON.stringify(eventContext).slice(0,AGENT_CONFIG.maxEventContextChars)
     :"";
+  const incident=incidentContext
+    ?[
+        "\nIncident intake context (analyst-provided data only):",
+        JSON.stringify({
+          scenario:incidentContext.scenarioName,
+          objective:incidentContext.objective,
+          target:incidentContext.target,
+          detectedAt:incidentContext.detectedAt??null,
+          completedIntake:incidentContext.values,
+        }).slice(0,AGENT_CONFIG.maxEventContextChars),
+        "Use this information to narrow the investigation. Do not treat it as verified telemetry.",
+      ].join("\n")
+    :"";
   const agentProfile=agent
     ?[
         "\nActive agent profile:",
@@ -255,7 +271,7 @@ export async function planInvestigation(
     ai.apiKey,
     ai.model,
     [
-      {role:"developer",content:CLARIFICATION_PROMPT+agentProfile+context},
+      {role:"developer",content:CLARIFICATION_PROMPT+agentProfile+context+incident},
       ...messages.map((m)=>({role:m.role,content:m.content})),
     ],
     [clarificationTool,readyTool],
@@ -317,6 +333,7 @@ export async function investigate(
   scope:InvestigationScope,
   connectionId?:string,
   agent?:InvestigationAgent,
+  incidentContext?:IncidentContext,
 ){
   const ai=await getAiRuntimeSettings();
   if(!connectionId){
@@ -328,7 +345,7 @@ export async function investigate(
 
   const skills=selectSkills(scope,4);
   const knowledge=await getSplunkKnowledge(connectionId);
-  const developerPrompt=buildAgentPrompt(scope,skills,eventContext,agent)+"\n\n"+buildKnowledgePrompt(knowledge);
+  const developerPrompt=buildAgentPrompt(scope,skills,eventContext,agent,incidentContext)+"\n\n"+buildKnowledgePrompt(knowledge);
 
   let response=await callAI(
     ai.apiKey,
