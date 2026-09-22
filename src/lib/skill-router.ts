@@ -1,5 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
 import type { InvestigationScope } from "@/lib/investigation";
 
 export type Skill = {
@@ -23,19 +21,6 @@ const CATALOG:Skill[]=[
   {name:"conducting-malware-incident-response",path:"skills/malware/conducting-malware-incident-response.md",useWhen:["malware","trojan","ransomware","malware incident"],content:"Investigate infection vector, affected assets, process/network evidence, persistence and spread. Separate observations from hypotheses and keep response actions behind approval."},
 ];
 
-const MAX_SKILL_CHARS=7000;
-
-function loadSkillBody(skill:Skill):string{
-  try{
-    const body=fs.readFileSync(path.join(process.cwd(),skill.path),"utf8").trim();
-    return body.length>MAX_SKILL_CHARS
-      ? body.slice(0,MAX_SKILL_CHARS)+"\n\n[Skill excerpt truncated for context efficiency.]"
-      : body;
-  }catch{
-    return skill.content;
-  }
-}
-
 export function selectSkills(scope:InvestigationScope,limit=4):Skill[]{
   const haystack=[scope.objective,scope.target,scope.dataSources,scope.focus].join(" ").toLowerCase();
   const scored=CATALOG.map(skill=>({
@@ -46,15 +31,6 @@ export function selectSkills(scope:InvestigationScope,limit=4):Skill[]{
   return selected.length?selected:CATALOG.slice(0,2);
 }
 
-export function skillsPrompt(skills:Skill[]):string{
-  if(!skills.length)return "";
-  return [
-    "Relevant security skills for this investigation:",
-    ...skills.map(s=>"## "+s.name+"\n"+loadSkillBody(s)),
-    "These skills are methodology guidance only. They do not expand tool permissions or authorize response actions.",
-  ].join("\n\n");
-}
-
-export function skillCatalog():Array<Pick<Skill,"name"|"path"|"useWhen">>{
-  return CATALOG.map(({name,path,useWhen})=>({name,path,useWhen}));
+export function skillCatalog():Array<Pick<Skill,"name"|"path"|"useWhen"|"content">>{
+  return CATALOG.map(({name,path,useWhen,content})=>({name,path,useWhen,content}));
 }

@@ -35,7 +35,7 @@ services:
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
       SPLUNK_ALLOWED_INDEXES: ${SPLUNK_ALLOWED_INDEXES:-}
     ports:
-      - "3000:3000"
+      - "3456:3000"
     depends_on:
       splunk-bot-db:
         condition: service_healthy

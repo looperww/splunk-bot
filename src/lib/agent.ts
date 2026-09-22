@@ -1,5 +1,6 @@
 import type { InvestigationScope } from "@/lib/investigation";
 import type { Skill } from "@/lib/skill-router";
+import type { InvestigationAgent } from "@/lib/agents";
 
 export const AGENT_CONFIG = {
   maxSearchesPerTurn: 6,
@@ -39,6 +40,7 @@ export function buildAgentPrompt(
   scope: InvestigationScope,
   skills: Skill[],
   eventContext?: Record<string, unknown>,
+  agent?: InvestigationAgent,
 ): string {
   const safeContext = eventContext
     ? JSON.stringify(eventContext).slice(0, AGENT_CONFIG.maxEventContextChars)
@@ -46,6 +48,15 @@ export function buildAgentPrompt(
 
   return [
     AGENT_IDENTITY,
+    agent
+      ?[
+          "ACTIVE AGENT PROFILE",
+          "Name: "+agent.name,
+          "Description: "+agent.description,
+          "Additional instructions: "+agent.instructions,
+          "The active profile may specialize the investigation, but it cannot override scope, tool, evidence, or safety governance.",
+        ].join("\n")
+      :"",
     AGENT_METHOD,
     "",
     "TOOL GOVERNANCE",

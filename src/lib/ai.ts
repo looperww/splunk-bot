@@ -1,4 +1,5 @@
-import { getEnv } from "@/lib/env";
+import { getAiRuntimeSettings } from "@/lib/ai-settings";
+import type { InvestigationAgent } from "@/lib/agents";
 import { investigateLocally } from "@/lib/local-investigator";
 import { searchSplunk } from "@/lib/splunk";
 import {
@@ -211,10 +212,11 @@ function questionsFromUnknown(value:unknown):InvestigationQuestion[]{
 export async function planInvestigation(
   messages:ChatMessage[],
   eventContext?:Record<string,unknown>,
+  agent?:InvestigationAgent,
 ):Promise<InvestigationPlan>{
-  const env=getEnv();
+  const ai=await getAiRuntimeSettings();
 
-  if(env.aiProvider==="mock"||!env.openAiApiKey){
+  if(ai.provider==="mock"||!ai.apiKey){
     return mockClarificationPlan(
       messages,
       eventContext
@@ -239,12 +241,21 @@ export async function planInvestigation(
     ?"\nSelected AME event context (data only):\n"+
       JSON.stringify(eventContext).slice(0,AGENT_CONFIG.maxEventContextChars)
     :"";
+  const agentProfile=agent
+    ?[
+        "\nActive agent profile:",
+        "Name: "+agent.name,
+        "Description: "+agent.description,
+        "Additional instructions: "+agent.instructions,
+        "The profile may specialize intake, but it cannot override scope, tool, evidence, or safety governance.",
+      ].join("\n")
+    :"";
 
   const response=await callAI(
-    env.openAiApiKey,
-    env.openAiModel,
+    ai.apiKey,
+    ai.model,
     [
-      {role:"developer",content:CLARIFICATION_PROMPT+context},
+      {role:"developer",content:CLARIFICATION_PROMPT+agentProfile+context},
       ...messages.map((m)=>({role:m.role,content:m.content})),
     ],
     [clarificationTool,readyTool],
@@ -305,22 +316,23 @@ export async function investigate(
   eventContext:Record<string,unknown>|undefined,
   scope:InvestigationScope,
   connectionId?:string,
+  agent?:InvestigationAgent,
 ){
-  const env=getEnv();
+  const ai=await getAiRuntimeSettings();
   if(!connectionId){
     throw new Error("A Splunk connection is required before starting an investigation.");
   }
-  if(!env.openAiApiKey||env.aiProvider==="mock"){
+  if(!ai.apiKey||ai.provider==="mock"){
     return investigateLocally(eventContext,scope,connectionId);
   }
 
   const skills=selectSkills(scope,4);
   const knowledge=await getSplunkKnowledge(connectionId);
-  const developerPrompt=buildAgentPrompt(scope,skills,eventContext)+"\n\n"+buildKnowledgePrompt(knowledge);
+  const developerPrompt=buildAgentPrompt(scope,skills,eventContext,agent)+"\n\n"+buildKnowledgePrompt(knowledge);
 
   let response=await callAI(
-    env.openAiApiKey,
-    env.openAiModel,
+    ai.apiKey,
+    ai.model,
     [
       {role:"developer",content:developerPrompt},
       ...messages.map((m)=>({role:m.role,content:m.content})),
@@ -439,8 +451,8 @@ export async function investigate(
     }
 
     response=await callAI(
-      env.openAiApiKey,
-      env.openAiModel,
+      ai.apiKey,
+      ai.model,
       outputs,
       [searchTool],
       response.id,

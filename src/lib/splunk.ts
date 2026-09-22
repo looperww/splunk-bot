@@ -1,10 +1,10 @@
 import { getDefaultConnection, getConnectionCredentials } from "@/lib/connections";
-import type { AmeEvent } from "@/lib/types";
+import type { AmeEvent, SplunkAlert } from "@/lib/types";
 
 const MAX_RESULTS=200;
 const REQUEST_TIMEOUT_MS=30000;
-const DEFAULT_AME_EVENTS_PATH="/services/ame_events";
 const DEFAULT_SEARCH_PATH="/services/search/v2/jobs/export";
+const AME_EVENTS_SEARCH="| ameevents | head "+MAX_RESULTS;
 
 type SplunkRuntimeConnection={
   id:string;
@@ -53,21 +53,15 @@ async function splunkFetch(
   }
 }
 
-async function readJson(response:Response):Promise<unknown>{
+async function readJson(response:Response,operation:string):Promise<unknown>{
   const text=await response.text();
-
   if(!response.ok){
     throw new Error(
-      "Splunk request failed ("+response.status+"): "+text.slice(0,600),
+      operation+" failed ("+response.status+"): "+text.slice(0,600),
     );
   }
-
   try{return JSON.parse(text);}
-  catch{
-    throw new Error(
-      "Splunk returned non-JSON data: "+text.slice(0,600),
-    );
-  }
+  catch{throw new Error(operation+" returned non-JSON data.");}
 }
 
 function normalizeEvent(item:unknown,index:number):AmeEvent{
@@ -89,19 +83,41 @@ function normalizeEvent(item:unknown,index:number):AmeEvent{
     ),
     title:String(
       record.title??
+      record.event_title??
       content.title??
+      content.event_title??
       content.name??
       content.description??
       "Untitled AME event",
     ),
-    status:content.status?String(content.status):undefined,
-    urgency:content.urgency?String(content.urgency):undefined,
-    created:content.created
-      ?String(content.created)
-      :content.created_at
-        ?String(content.created_at)
+    status:content.status_name
+      ?String(content.status_name)
+      :content.status
+        ?String(content.status)
         :undefined,
-    owner:content.owner?String(content.owner):undefined,
+    urgency:content.urgency_name
+      ?String(content.urgency_name)
+      :content.priority_name
+        ?String(content.priority_name)
+        :content.urgency
+          ?String(content.urgency)
+          :content.priority
+            ?String(content.priority)
+            :undefined,
+    created:content.first_seen
+      ?String(content.first_seen)
+      :content.created
+        ?String(content.created)
+        :content.created_at
+          ?String(content.created_at)
+          :undefined,
+    owner:content.assignee_name
+      ?String(content.assignee_name)
+      :content.assignee
+        ?String(content.assignee)
+        :content.owner
+          ?String(content.owner)
+          :undefined,
     raw:record,
   };
 }
@@ -109,31 +125,60 @@ function normalizeEvent(item:unknown,index:number):AmeEvent{
 export async function getAmeEvents(
   connectionId?:string,
 ):Promise<{events:AmeEvent[];raw:unknown}>{
+  const result=await searchSplunk(
+    AME_EVENTS_SEARCH,
+    "-30d",
+    "now",
+    MAX_RESULTS,
+    connectionId,
+  );
+
+  return {
+    events:result.results.map(normalizeEvent),
+    raw:result.results,
+  };
+}
+
+export async function getSplunkAlerts(
+  connectionId?:string,
+):Promise<SplunkAlert[]>{
   const connection=await resolveConnection(connectionId);
   const response=await splunkFetch(
     connection,
-    DEFAULT_AME_EVENTS_PATH+"?output_mode=json",
+    "/services/saved/searches?output_mode=json&count=0",
   );
-  const payload=await readJson(response);
+  const payload=await readJson(response,"Splunk saved-alert request");
+  const entries=payload&&typeof payload==="object"&&
+    Array.isArray((payload as Record<string,unknown>).entry)
+    ?(payload as Record<string,unknown>).entry as unknown[]
+    :[];
 
-  const source=
-    Array.isArray(payload)
-      ?payload
-      :payload&&typeof payload==="object"&&
-        Array.isArray((payload as Record<string,unknown>).entry)
-        ?(payload as Record<string,unknown>).entry
-        :payload&&typeof payload==="object"&&
-          Array.isArray((payload as Record<string,unknown>).results)
-          ?(payload as Record<string,unknown>).results
-          :payload&&typeof payload==="object"&&
-            Array.isArray((payload as Record<string,unknown>).events)
-            ?(payload as Record<string,unknown>).events
-            :[];
+  return entries.map((value,index)=>{
+    const entry=value&&typeof value==="object"
+      ?value as Record<string,unknown>
+      :{};
+    const content=entry.content&&typeof entry.content==="object"
+      ?entry.content as Record<string,unknown>
+      :{};
+    const aclSource=entry.acl??entry["eai:acl"];
+    const acl=aclSource&&typeof aclSource==="object"
+      ?aclSource as Record<string,unknown>
+      :{};
+    const truthy=(value:unknown)=>
+      value===true||value===1||value==="1"||value==="true";
 
-  return {
-    events:(source as unknown[]).slice(0,MAX_RESULTS).map(normalizeEvent),
-    raw:payload,
-  };
+    return {
+      id:String(entry.id??entry.name??"alert-"+index),
+      name:String(entry.name??entry.title??"Untitled alert"),
+      app:acl.app?String(acl.app):undefined,
+      owner:acl.owner?String(acl.owner):undefined,
+      disabled:truthy(content.disabled),
+      scheduled:truthy(content.is_scheduled),
+      alertType:content.alert_type?String(content.alert_type):undefined,
+      cronSchedule:content.cron_schedule?String(content.cron_schedule):undefined,
+      description:content.description?String(content.description):undefined,
+    };
+  });
 }
 
 const BLOCKED=[

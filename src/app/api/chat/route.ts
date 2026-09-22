@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
 import { investigate, planInvestigation } from "@/lib/ai";
+import { getAiRuntimeSettings } from "@/lib/ai-settings";
+import { getAgent } from "@/lib/agents";
 import type { AgentBudget, ChatMessage } from "@/lib/types";
 
 export async function POST(request: NextRequest){
@@ -9,6 +10,7 @@ export async function POST(request: NextRequest){
       messages?:ChatMessage[];
       eventContext?:Record<string,unknown>;
       connectionId?:string;
+      agentId?:string;
     };
 
     if(!Array.isArray(body.messages)){
@@ -34,12 +36,17 @@ export async function POST(request: NextRequest){
       );
     }
 
-    const env=getEnv();
+    const ai=await getAiRuntimeSettings();
     const connectionId=String(body.connectionId??body.eventContext?.connectionId??"").trim();
     if(!connectionId){
       return NextResponse.json({error:"A Splunk connection must be selected before investigating."},{status:400});
     }
-    const plan=await planInvestigation(messages,body.eventContext);
+    const agentId=String(body.agentId??"default-soc-agent");
+    const agent=await getAgent(agentId);
+    if(!agent){
+      return NextResponse.json({error:"The selected investigation agent was not found."},{status:400});
+    }
+    const plan=await planInvestigation(messages,body.eventContext,agent);
 
     if(plan.status==="clarification_needed"){
       const questionsText=plan.questions
@@ -66,23 +73,7 @@ export async function POST(request: NextRequest){
         scope:plan.scope,
         searches:[],
         skills:[],
-        demo:env.demoMode,
-      });
-    }
-
-    if(env.aiProvider==="mock"){
-      return NextResponse.json({
-        status:"ready",
-        message:{
-          role:"assistant",
-          content:
-            "Scope confirmed. Mock mode does not execute live AI searches. Configure AI_PROVIDER=openai and OPENAI_API_KEY to run the investigator.",
-        },
-        questions:[],
-        scope:plan.scope,
-        searches:[],
-        skills:[],
-        demo:env.demoMode,
+        agent,
       });
     }
 
@@ -91,6 +82,7 @@ export async function POST(request: NextRequest){
       body.eventContext,
       plan.scope,
       connectionId,
+      agent,
     );
 
     return NextResponse.json({
@@ -101,7 +93,8 @@ export async function POST(request: NextRequest){
       searches:result.searches,
       skills:result.skills,
       budget:result.budget as AgentBudget,
-      demo:env.demoMode,
+      agent,
+      aiEnabled:ai.provider==="openai"&&Boolean(ai.apiKey),
     });
   }catch(error){
     return NextResponse.json(

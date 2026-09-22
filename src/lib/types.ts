@@ -14,6 +14,18 @@ export type AmeEvent = {
   raw:Record<string,unknown>;
 };
 
+export type SplunkAlert = {
+  id:string;
+  name:string;
+  app?:string;
+  owner?:string;
+  disabled:boolean;
+  scheduled:boolean;
+  alertType?:string;
+  cronSchedule?:string;
+  description?:string;
+};
+
 export type SearchAudit = {
   searchId:string;
   query:string;

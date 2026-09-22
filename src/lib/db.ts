@@ -163,6 +163,38 @@ async function createSchema():Promise<void>{
 
       CREATE INDEX IF NOT EXISTS splunk_discovery_runs_connection_idx
         ON splunk_discovery_runs(connection_id, started_at DESC);
+
+      CREATE TABLE IF NOT EXISTS ai_settings (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL DEFAULT 'mock',
+        model TEXT NOT NULL DEFAULT 'gpt-5.6-luna',
+        api_key_ciphertext TEXT,
+        api_key_iv TEXT,
+        api_key_tag TEXT,
+        api_key_last4 TEXT NOT NULL DEFAULT '',
+        encryption_key_version INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS investigation_agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        instructions TEXT NOT NULL DEFAULT '',
+        is_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      INSERT INTO investigation_agents(
+        id,name,description,instructions,is_default
+      ) VALUES(
+        'default-soc-agent',
+        'SOC Investigation Agent',
+        'Evidence-driven defensive investigation agent for Splunk and AME.',
+        'Use the governed baseline, pivot, confirmation, and reporting workflow.',
+        TRUE
+      ) ON CONFLICT(id) DO NOTHING;
     `);
   });
 }
