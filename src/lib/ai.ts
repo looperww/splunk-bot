@@ -250,6 +250,7 @@ export async function planInvestigation(
         JSON.stringify({
           scenario:incidentContext.scenarioName,
           objective:incidentContext.objective,
+          focus:incidentContext.focus,
           target:incidentContext.target,
           detectedAt:incidentContext.detectedAt??null,
           completedIntake:incidentContext.values,
