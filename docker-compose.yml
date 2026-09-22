@@ -23,7 +23,11 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://splunk_bot:${POSTGRES_PASSWORD}@splunk-bot-db:5432/splunk_bot
+      PGHOST: splunk-bot-db
+      PGPORT: "5432"
+      PGDATABASE: splunk_bot
+      PGUSER: splunk_bot
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set in .env.docker}
       SPLUNK_TOKEN_ENCRYPTION_KEY: ${SPLUNK_TOKEN_ENCRYPTION_KEY:?set in .env.docker}
       DEMO_MODE: ${DEMO_MODE:-false}
       AI_PROVIDER: ${AI_PROVIDER:-mock}
