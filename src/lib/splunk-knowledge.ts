@@ -51,3 +51,37 @@ export async function getSplunkKnowledge(connectionId:string){
     latestDiscovery:latestDiscovery[0]??null,
   };
 }
+
+
+export function buildKnowledgePrompt(knowledge:Awaited<ReturnType<typeof getSplunkKnowledge>>):string{
+  const indexes=knowledge.indexes.slice(0,100).map((row)=>({
+    name:String(row.name),
+    searchable:Boolean(row.searchable),
+    events30d:row.event_count_30d??null,
+  }));
+
+  const sourcetypes=knowledge.sourcetypes.slice(0,300).map((row)=>({
+    index:row.index_name?String(row.index_name):null,
+    name:String(row.name),
+    events30d:row.event_count_30d??null,
+  }));
+
+  const dataModels=knowledge.dataModels.slice(0,100).map((row)=>({
+    name:String(row.name),
+    app:row.app?String(row.app):null,
+    accelerated:Boolean(row.acceleration_enabled),
+  }));
+
+  return [
+    "CACHED SPLUNK ENVIRONMENT KNOWLEDGE",
+    "This metadata was discovered previously and should be used before exploratory discovery searches.",
+    JSON.stringify({
+      roles:knowledge.roles,
+      capabilities:knowledge.capabilities,
+      indexes,
+      sourcetypes,
+      dataModels,
+    }),
+    "Do not assume a cached item is current if the search results contradict it; prefer a narrow verification search.",
+  ].join("\n");
+}
