@@ -141,10 +141,12 @@ export default function InvestigatorWorkspace(){
       }
 
       if(data.message){
-        setMessages((current)=>[
-          ...current,
-          {...data.message,id:crypto.randomUUID()},
-        ]);
+        const assistantMessage:ChatMessage={
+          id:crypto.randomUUID(),
+          role:data.message.role,
+          content:data.message.content,
+        };
+        setMessages((current)=>[...current,assistantMessage]);
       }
 
       setQuestions(data.questions??[]);
