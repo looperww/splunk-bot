@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ensureSchema, query, withDb } from "@/lib/db";
+import { ensureSchema, query } from "@/lib/db";
 import {
   buildIncidentContext,
   type IncidentField,
