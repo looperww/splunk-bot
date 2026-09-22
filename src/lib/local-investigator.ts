@@ -1,4 +1,5 @@
 import { searchSplunk } from "@/lib/splunk";
+import { selectSkills } from "@/lib/skill-router";
 import { getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey } from "@/lib/agent";
 import type { InvestigationScope } from "@/lib/investigation";
@@ -87,6 +88,7 @@ export async function investigateLocally(
 ):Promise<LocalInvestigationResult>{
   const knowledge=await getSplunkKnowledge(connectionId);
 
+  const skills=selectSkills(scope,4);
   const indexes=pickIndexes(knowledge,scope);
   if(!indexes.length){
     return {
@@ -98,7 +100,7 @@ export async function investigateLocally(
         ].join("\n\n"),
       },
       searches:[],
-      skills:[],
+      skills:skills.map((skill)=>skill.name),
       budget:{searchesUsed:0,searchLimit:AGENT_CONFIG.maxSearchesPerTurn,toolRounds:0,toolRoundLimit:AGENT_CONFIG.maxToolRounds},
     };
   }
@@ -186,6 +188,8 @@ export async function investigateLocally(
         "Time: "+scope.earliest+" → "+scope.latest,
         "Focus: "+(scope.focus||"general"),
         "",
+        "Methods selected: "+(skills.map((skill)=>skill.name).join(", ")||"core investigation"),
+        "",
         "Evidence collected:",
         searches.map((search,index)=>(
           (index+1)+". "+search.phase+" — "+search.resultCount+
@@ -196,7 +200,7 @@ export async function investigateLocally(
       ].join("\n"),
     },
     searches,
-    skills:[],
+    skills:skills.map((skill)=>skill.name),
     budget:{
       searchesUsed:searchCount,
       searchLimit:AGENT_CONFIG.maxSearchesPerTurn,
