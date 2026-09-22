@@ -26,7 +26,7 @@ export type LocalInvestigationResult={
 type Knowledge=Awaited<ReturnType<typeof getSplunkKnowledge>>;
 
 function quote(value:string):string{
-  return '"' + value.replace(/\/g,"\\").replace(/"/g,'\"') + '"';
+  return '"' + value.replaceAll('\\','\\\\').replaceAll('"','\\"') + '"';
 }
 
 function pickIndexes(knowledge:Knowledge,scope:InvestigationScope):string[]{
