@@ -1,8 +1,4 @@
 type Env = {
-  splunkBaseUrl: string;
-  splunkToken: string;
-  ameEventsPath: string;
-  splunkSearchPath: string;
   aiProvider: "mock" | "openai";
   openAiApiKey: string;
   openAiModel: string;
@@ -10,34 +6,25 @@ type Env = {
   demoMode: boolean;
 };
 
-function required(name: string, value: string | undefined): string {
-  if (!value) throw new Error("Missing required environment variable: " + name);
-  return value;
-}
+export function getEnv():Env{
+  const demoMode=process.env.DEMO_MODE==="true";
+  const aiProvider=(process.env.AI_PROVIDER??"mock") as Env["aiProvider"];
 
-export function getEnv(): Env {
-  const demoMode = process.env.DEMO_MODE === "true";
-  const aiProvider = (process.env.AI_PROVIDER ?? "mock") as Env["aiProvider"];
-
-  if (aiProvider !== "mock" && aiProvider !== "openai") {
+  if(aiProvider!=="mock"&&aiProvider!=="openai"){
     throw new Error("AI_PROVIDER must be mock or openai");
   }
 
-  const splunkBaseUrl = process.env.SPLUNK_BASE_URL;
-  const splunkToken = process.env.SPLUNK_TOKEN;
+  if(aiProvider==="openai"&&!process.env.OPENAI_API_KEY){
+    // OpenAI is optional during local Splunk-only testing.
+  }
 
   return {
-    splunkBaseUrl: demoMode ? splunkBaseUrl ?? "" : required("SPLUNK_BASE_URL", splunkBaseUrl),
-    splunkToken: demoMode ? splunkToken ?? "" : required("SPLUNK_TOKEN", splunkToken),
-    ameEventsPath: process.env.AME_EVENTS_PATH ?? "/services/ame_events",
-    splunkSearchPath:
-      process.env.SPLUNK_SEARCH_PATH ?? "/services/search/v2/jobs/export",
     aiProvider,
-    openAiApiKey: process.env.OPENAI_API_KEY ?? "",
-    openAiModel: process.env.OPENAI_MODEL ?? "gpt-5.6-luna",
-    allowedIndexes: (process.env.SPLUNK_ALLOWED_INDEXES ?? "")
+    openAiApiKey:process.env.OPENAI_API_KEY??"",
+    openAiModel:process.env.OPENAI_MODEL??"gpt-5.6-luna",
+    allowedIndexes:(process.env.SPLUNK_ALLOWED_INDEXES??"")
       .split(",")
-      .map((value) => value.trim())
+      .map((value)=>value.trim())
       .filter(Boolean),
     demoMode,
   };
