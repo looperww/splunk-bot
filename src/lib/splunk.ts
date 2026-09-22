@@ -1,18 +1,45 @@
-import { getEnv } from "@/lib/env";
+import { getDefaultConnection, getConnectionCredentials } from "@/lib/connections";
 import type { AmeEvent } from "@/lib/types";
 
 const MAX_RESULTS=200;
 const REQUEST_TIMEOUT_MS=30000;
+const DEFAULT_AME_EVENTS_PATH="/services/ame_events";
+const DEFAULT_SEARCH_PATH="/services/search/v2/jobs/export";
 
-async function splunkFetch(path:string,init?:RequestInit):Promise<Response>{
-  const env=getEnv();
+type SplunkRuntimeConnection={
+  id:string;
+  baseUrl:string;
+  token:string;
+};
+
+async function resolveConnection(connectionId?:string):Promise<SplunkRuntimeConnection>{
+  const connection=connectionId
+    ?await getConnectionCredentials(connectionId)
+    :await getDefaultConnection();
+
+  if(!connection) throw new Error("No Splunk connection is configured. Open Settings and add a Splunk connection.");
+  return {
+    id:connection.id,
+    baseUrl:connection.baseUrl,
+    token:connection.token,
+  };
+}
+
+async function splunkFetch(
+  connection:SplunkRuntimeConnection,
+  path:string,
+  init?:RequestInit,
+):Promise<Response>{
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),REQUEST_TIMEOUT_MS);
+  const timeout=setTimeout(
+    ()=>controller.abort(),
+    REQUEST_TIMEOUT_MS,
+  );
 
   try{
-    const url=new URL(path,env.splunkBaseUrl);
+    const url=new URL(path,connection.baseUrl);
     const headers=new Headers(init?.headers);
-    headers.set("Authorization","Bearer "+env.splunkToken);
+    headers.set("Authorization","Bearer "+connection.token);
     headers.set("Accept","application/json");
 
     return await fetch(url,{
@@ -28,16 +55,18 @@ async function splunkFetch(path:string,init?:RequestInit):Promise<Response>{
 
 async function readJson(response:Response):Promise<unknown>{
   const text=await response.text();
+
   if(!response.ok){
     throw new Error(
       "Splunk request failed ("+response.status+"): "+text.slice(0,600),
     );
   }
 
-  try{
-    return JSON.parse(text);
-  }catch{
-    throw new Error("Splunk returned non-JSON data: "+text.slice(0,600));
+  try{return JSON.parse(text);}
+  catch{
+    throw new Error(
+      "Splunk returned non-JSON data: "+text.slice(0,600),
+    );
   }
 }
 
@@ -77,9 +106,14 @@ function normalizeEvent(item:unknown,index:number):AmeEvent{
   };
 }
 
-export async function getAmeEvents():Promise<{events:AmeEvent[];raw:unknown}>{
-  const env=getEnv();
-  const response=await splunkFetch(env.ameEventsPath+"?output_mode=json");
+export async function getAmeEvents(
+  connectionId?:string,
+):Promise<{events:AmeEvent[];raw:unknown}>{
+  const connection=await resolveConnection(connectionId);
+  const response=await splunkFetch(
+    connection,
+    DEFAULT_AME_EVENTS_PATH+"?output_mode=json",
+  );
   const payload=await readJson(response);
 
   const source=
@@ -127,13 +161,8 @@ const BROAD_SEARCH_PATTERNS=[
 export function validateSpl(query:string):void{
   const value=query.trim();
 
-  if(!value){
-    throw new Error("SPL query is empty.");
-  }
-
-  if(value.length>4000){
-    throw new Error("SPL query is too long.");
-  }
+  if(!value) throw new Error("SPL query is empty.");
+  if(value.length>4000) throw new Error("SPL query is too long.");
 
   for(const pattern of BLOCKED){
     if(pattern.test(value)){
@@ -147,7 +176,10 @@ export function validateSpl(query:string):void{
     }
   }
 
-  const allowed=getEnv().allowedIndexes;
+  const allowed=process.env.SPLUNK_ALLOWED_INDEXES
+    ?process.env.SPLUNK_ALLOWED_INDEXES.split(",").map((v)=>v.trim()).filter(Boolean)
+    :[];
+
   if(allowed.length===0) return;
 
   const matches=[
@@ -165,7 +197,10 @@ export function validateSpl(query:string):void{
   }
 }
 
-function parseExport(text:string,maxResults=MAX_RESULTS):Record<string,unknown>[]{
+function parseExport(
+  text:string,
+  maxResults=MAX_RESULTS,
+):Record<string,unknown>[]{
   const results:Record<string,unknown>[]=[];
 
   for(const line of text.split(/\r?\n/)){
@@ -174,12 +209,11 @@ function parseExport(text:string,maxResults=MAX_RESULTS):Record<string,unknown>[
 
     try{
       const parsed=JSON.parse(value) as Record<string,unknown>;
-
       if(parsed.result&&typeof parsed.result==="object"){
         results.push(parsed.result as Record<string,unknown>);
       }
     }catch{
-      // Export responses can contain non-JSON lines; ignore them.
+      // Ignore non-JSON export lines.
     }
 
     if(results.length>=maxResults) break;
@@ -193,6 +227,7 @@ export async function searchSplunk(
   earliest="-24h",
   latest="now",
   maxResults=MAX_RESULTS,
+  connectionId?:string,
 ){
   validateSpl(query);
 
@@ -204,7 +239,7 @@ export async function searchSplunk(
     throw new Error("Splunk searches require an explicit time window.");
   }
 
-  const env=getEnv();
+  const connection=await resolveConnection(connectionId);
   const body=new URLSearchParams({
     search:query,
     earliest_time:earliest,
@@ -214,7 +249,8 @@ export async function searchSplunk(
   });
 
   const response=await splunkFetch(
-    env.splunkSearchPath,
+    connection,
+    DEFAULT_SEARCH_PATH,
     {
       method:"POST",
       headers:{"Content-Type":"application/x-www-form-urlencoded"},
@@ -234,6 +270,7 @@ export async function searchSplunk(
 
   return {
     searchId:crypto.randomUUID(),
+    connectionId:connection.id,
     query,
     earliest,
     latest,
