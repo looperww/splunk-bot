@@ -1,5 +1,7 @@
 # Docker deployment
 
+The project uses a single Docker Compose file for both the application and PostgreSQL database.
+
 ## 1. Clone
 
 git clone https://github.com/looperww/splunk-bot.git
@@ -7,35 +9,33 @@ cd splunk-bot
 
 ## 2. Create the runtime environment file
 
-cp .env.example .env.docker
+cp .env.docker.example .env.docker
 chmod 600 .env.docker
 
-At minimum, configure:
+Set at least:
 
-DEMO_MODE=false
-SPLUNK_BASE_URL=https://splunk.bce.lu:8089
-SPLUNK_TOKEN=<server-side Splunk token>
-AME_EVENTS_PATH=/services/ame_events
-SPLUNK_SEARCH_PATH=/services/search/v2/jobs/export
+POSTGRES_PASSWORD=<long-random-password>
+SPLUNK_TOKEN_ENCRYPTION_KEY=<32-byte-base64-key>
 
-AI_PROVIDER=openai
-OPENAI_API_KEY=<server-side AI key>
-OPENAI_MODEL=<model supported by your AI provider>
+Generate the encryption key with:
 
-For additional containment, configure:
+openssl rand -base64 32
 
-SPLUNK_ALLOWED_INDEXES=<comma-separated index allowlist>
+Leave:
 
-Do not commit .env.docker.
+AI_PROVIDER=mock
+OPENAI_API_KEY=
+
+when an OpenAI key is not available. The application will still start and the web UI can test Splunk, store the token encrypted in PostgreSQL, discover Splunk metadata, load AME events, and run bounded local Splunk test investigations.
 
 ## 3. Build and start
 
 docker compose up -d --build
 
-Check:
+The compose file starts:
 
-docker compose ps
-docker compose logs -f splunk-bot
+- `splunk-bot`
+- `splunk-bot-db` (PostgreSQL 16)
 
 The application listens on port 3000.
 
@@ -47,39 +47,81 @@ Expected response contains:
 
 "status":"ok"
 
-## 5. Test the application
+## 5. Configure Splunk from the web UI
 
 Open:
 
 http://<docker-host>:3000
 
-For the first production test, keep the application read-only. Verify that the event list can reach AME and that a controlled investigation can execute a harmless Splunk search.
+Under **Connection & discovery**:
 
-## 6. Updating
+1. Enter a connection name.
+2. Enter the Splunk management URL, for example `https://splunk.example.com:8089`.
+3. Paste a Splunk token.
+4. Click **Test connection**.
+5. Click **Save connection**.
+
+The token is never returned to the browser after saving. It is encrypted with AES-256-GCM before being stored in PostgreSQL.
+
+After saving, the first discovery collects and caches:
+
+- Splunk server/version metadata
+- authenticated username
+- roles
+- capabilities
+- indexes
+- index metadata
+- sourcetypes and 30-day coverage metadata for up to 100 indexes
+- data models and acceleration metadata
+
+Use **Rediscover** after major Splunk configuration changes.
+
+## 6. Test Splunk features without OpenAI
+
+With no OpenAI API key, the application uses local test mode.
+
+You can verify:
+
+- token authentication
+- AME event retrieval
+- index discovery
+- sourcetype discovery
+- data-model discovery
+- bounded `tstats` searches against discovered indexes
+- target-focused search when the AME event contains a host/user/IP
+
+The local mode is deterministic and is not a substitute for the model-driven investigator. Add an OpenAI key later to enable model-driven investigation planning and multi-step reasoning.
+
+## 7. Updating
 
 cd splunk-bot
 git pull
 docker compose up -d --build
 
-## 7. Stop
+## 8. Stop
 
 docker compose down
 
+To also remove the PostgreSQL data volume:
+
+docker compose down -v
+
 ## Security requirements
 
-- Keep .env.docker out of Git.
+- Keep `.env.docker` out of Git.
+- Keep `SPLUNK_TOKEN_ENCRYPTION_KEY` outside PostgreSQL.
 - Use a dedicated read-only Splunk credential for the investigator.
-- Restrict SPLUNK_ALLOWED_INDEXES.
+- Restrict `SPLUNK_ALLOWED_INDEXES` when appropriate.
 - Do not expose port 3000 directly to the Internet; put the application behind your existing reverse proxy/TLS layer.
 - Restrict access to the application with SSO/RBAC before broad internal use.
-- Do not disable TLS certificate verification for Splunk in production. If the Splunk server uses an internal CA, add the CA to the container trust store in a later hardening step.
+- Do not disable TLS certificate verification for Splunk in production.
+- Back up the PostgreSQL volume securely because it contains encrypted Splunk credentials and investigation metadata.
+- If the encryption key is lost, stored Splunk tokens cannot be decrypted.
 
 ## Current limitations
 
-The current application does not yet implement:
-- Entra ID / SSO
-- persistent database
-- AME comment/annotation write-back
-- a production-grade SPL policy engine
-
-These are later milestones.
+- No Entra ID / SSO yet.
+- No per-user RBAC yet.
+- No AME comment/annotation write-back.
+- Splunk tokens are application-managed and encrypted, but an authenticated application administrator can cause the backend to use them.
+- The discovery process intentionally avoids full event/field inventory. Field profiles should be discovered progressively when an investigation needs them.
