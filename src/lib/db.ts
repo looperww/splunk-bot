@@ -59,7 +59,7 @@ async function createSchema():Promise<void>{
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
-      CREATE UNIQUE INDEX IF NOT EXISTS splunk_connections_token_fp_idx
+      CREATE INDEX IF NOT EXISTS splunk_connections_token_fp_idx
         ON splunk_connections(token_fingerprint);
 
       CREATE INDEX IF NOT EXISTS splunk_connections_default_idx
