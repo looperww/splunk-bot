@@ -129,10 +129,7 @@ export default function InvestigatorWorkspace(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           messages:[...messages,userMessage],
-          eventContext:{
-            ...(selectedEvent?.raw??{}),
-            connectionId:selectedConnection.id,
-          },
+          eventContext:selectedEvent?.raw,
           connectionId:selectedConnection.id,
         }),
       });
