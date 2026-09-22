@@ -275,6 +275,9 @@ async function createSchema():Promise<void>{
         TRUE
       ) ON CONFLICT(id) DO NOTHING;
 
+
+    `);
+
       for (const scenario of INCIDENT_SCENARIOS) {
         await client.query(
           `INSERT INTO incident_scenarios(
@@ -294,7 +297,6 @@ async function createSchema():Promise<void>{
           ],
         );
       }
-    `);
   });
 }
 
