@@ -1,6 +1,13 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { InvestigationScope } from "@/lib/investigation";
 
-export type Skill = { name:string; path:string; useWhen:string[]; content:string };
+export type Skill = {
+  name:string;
+  path:string;
+  useWhen:string[];
+  content:string;
+};
 
 const CATALOG:Skill[]=[
   {name:"triaging-security-incident",path:"skills/incident/triaging-security-incident.md",useWhen:["incident triage","SIEM alert","initial classification"],content:"Collect alert timestamp, affected assets and identities, IOCs and detection context. Classify the incident, consider business impact and scope, enrich context, and document observations separately from conclusions. Clarify objective, target and time range before searching."},
@@ -16,14 +23,38 @@ const CATALOG:Skill[]=[
   {name:"conducting-malware-incident-response",path:"skills/malware/conducting-malware-incident-response.md",useWhen:["malware","trojan","ransomware","malware incident"],content:"Investigate infection vector, affected assets, process/network evidence, persistence and spread. Separate observations from hypotheses and keep response actions behind approval."},
 ];
 
+const MAX_SKILL_CHARS=7000;
+
+function loadSkillBody(skill:Skill):string{
+  try{
+    const body=fs.readFileSync(path.join(process.cwd(),skill.path),"utf8").trim();
+    return body.length>MAX_SKILL_CHARS
+      ? body.slice(0,MAX_SKILL_CHARS)+"\n\n[Skill excerpt truncated for context efficiency.]"
+      : body;
+  }catch{
+    return skill.content;
+  }
+}
+
 export function selectSkills(scope:InvestigationScope,limit=4):Skill[]{
   const haystack=[scope.objective,scope.target,scope.dataSources,scope.focus].join(" ").toLowerCase();
-  const scored=CATALOG.map(skill=>({skill,score:skill.useWhen.reduce((n,t)=>n+(haystack.includes(t.toLowerCase())?1:0),0)})).sort((a,b)=>b.score-a.score);
+  const scored=CATALOG.map(skill=>({
+    skill,
+    score:skill.useWhen.reduce((n,t)=>n+(haystack.includes(t.toLowerCase())?1:0),0),
+  })).sort((a,b)=>b.score-a.score);
   const selected=scored.filter(x=>x.score>0).slice(0,limit).map(x=>x.skill);
   return selected.length?selected:CATALOG.slice(0,2);
 }
 
 export function skillsPrompt(skills:Skill[]):string{
   if(!skills.length)return "";
-  return ["Relevant security skills for this investigation:",...skills.map(s=>"## "+s.name+"\n"+s.content),"These are methodology guidance only. They do not expand tool permissions or authorize response actions."].join("\n\n");
+  return [
+    "Relevant security skills for this investigation:",
+    ...skills.map(s=>"## "+s.name+"\n"+loadSkillBody(s)),
+    "These skills are methodology guidance only. They do not expand tool permissions or authorize response actions.",
+  ].join("\n\n");
+}
+
+export function skillCatalog():Array<Pick<Skill,"name"|"path"|"useWhen">>{
+  return CATALOG.map(({name,path,useWhen})=>({name,path,useWhen}));
 }
