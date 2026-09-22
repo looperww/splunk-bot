@@ -3,6 +3,7 @@ import { selectSkills } from "@/lib/skill-router";
 import { getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey } from "@/lib/agent";
 import type { InvestigationScope } from "@/lib/investigation";
+import type { IncidentContext } from "@/lib/types";
 
 export type LocalInvestigationResult={
   message:{role:"assistant";content:string};
@@ -55,8 +56,13 @@ function pickIndexes(knowledge:Knowledge,scope:InvestigationScope):string[]{
   return [...new Set([...preferred,...available])].slice(0,2);
 }
 
-function targetFilter(eventContext:Record<string,unknown>|undefined,scope:InvestigationScope):string{
+function targetFilter(
+  eventContext:Record<string,unknown>|undefined,
+  scope:InvestigationScope,
+  incidentContext?:IncidentContext,
+):string{
   const candidates=[
+    incidentContext?.target,
     eventContext?.host,
     eventContext?.hostname,
     eventContext?.user,
@@ -67,6 +73,10 @@ function targetFilter(eventContext:Record<string,unknown>|undefined,scope:Invest
   ].filter((value)=>value!==undefined&&value!==null&&String(value).trim()!=="");
 
   if(!candidates.length) return "";
+
+  if(incidentContext?.target?.trim()){
+    return "incident_target="+quote(incidentContext.target);
+  }
 
   const value=String(candidates[0]);
   const field=eventContext?.host||eventContext?.hostname
@@ -86,6 +96,7 @@ export async function investigateLocally(
   eventContext:Record<string,unknown>|undefined,
   scope:InvestigationScope,
   connectionId:string,
+  incidentContext?:IncidentContext,
 ):Promise<LocalInvestigationResult>{
   const knowledge=await getSplunkKnowledge(connectionId);
 
@@ -145,7 +156,7 @@ export async function investigateLocally(
     });
   }
 
-  const target=targetFilter(eventContext,scope);
+  const target=targetFilter(eventContext,scope,incidentContext);
   const targetIndex=indexes[0];
 
   if(target&&targetIndex&&searchCount<AGENT_CONFIG.maxSearchesPerTurn){
@@ -187,9 +198,10 @@ export async function investigateLocally(
         "Local Splunk test mode completed a bounded investigation using the cached Splunk environment profile.",
         "",
         "Scope:",
+        "Scenario: "+(incidentContext?.scenarioName??"General investigation"),
         "Target: "+scope.target,
         "Time: "+scope.earliest+" → "+scope.latest,
-        "Focus: "+(scope.focus||"general"),
+        "Focus: "+(scope.focus||incidentContext?.focus||"general"),
         "",
         "Methods selected: "+(skills.map((skill)=>skill.name).join(", ")||"core investigation"),
         "",
