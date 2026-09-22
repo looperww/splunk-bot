@@ -19,6 +19,8 @@ export type SearchAudit = {
   query:string;
   resultCount:number;
   truncated:boolean;
+  phase:"baseline"|"pivot"|"confirmation";
+  cached:boolean;
 };
 
 export type AgentBudget = {
