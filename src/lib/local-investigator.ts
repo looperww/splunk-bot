@@ -61,8 +61,42 @@ function targetFilter(
   scope:InvestigationScope,
   incidentContext?:IncidentContext,
 ):string{
+  if(incidentContext){
+    const valueMap=incidentContext.values;
+    const targetMappings:[
+      string,
+      string
+    ][]=[
+      ["hostname","host"],
+      ["host","host"],
+      ["server_ip","src_ip"],
+      ["endpoint_ip","src_ip"],
+      ["source_ip","src_ip"],
+      ["attacker_ip","src_ip"],
+      ["suspicious_source_ip","src_ip"],
+      ["destination_ip","dest_ip"],
+      ["domain","domain"],
+      ["phishing_domain","domain"],
+      ["username","user"],
+      ["user","user"],
+      ["mailbox","user"],
+      ["db_user","user"],
+      ["service_identity","user"],
+      ["cloud_account","user"],
+      ["application","app"],
+      ["system","host"],
+      ["asset","host"],
+      ["service","host"],
+      ["entity","host"],
+    ];
+
+    for(const [fieldId,splunkField] of targetMappings){
+      const value=valueMap[fieldId]?.trim();
+      if(value) return splunkField+"="+quote(value);
+    }
+  }
+
   const candidates=[
-    incidentContext?.target,
     eventContext?.host,
     eventContext?.hostname,
     eventContext?.user,
@@ -70,13 +104,10 @@ function targetFilter(
     eventContext?.src_ip,
     eventContext?.dest_ip,
     eventContext?.domain,
+    scope.target,
   ].filter((value)=>value!==undefined&&value!==null&&String(value).trim()!=="");
 
   if(!candidates.length) return "";
-
-  if(incidentContext?.target?.trim()){
-    return "incident_target="+quote(incidentContext.target);
-  }
 
   const value=String(candidates[0]);
   const field=eventContext?.host||eventContext?.hostname
@@ -87,7 +118,9 @@ function targetFilter(
         ?"src_ip"
         :eventContext?.dest_ip
           ?"dest_ip"
-          :"domain";
+          :eventContext?.domain
+            ?"domain"
+            :"host";
 
   return field+"="+quote(value);
 }
