@@ -99,3 +99,50 @@ code,pre{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}.deta
 
 @media(max-width:1100px){.card-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-layout{grid-template-columns:1fr}.dashboard-layout .rightbar{position:static;min-height:auto}.dashboard-toolbar{grid-template-columns:1fr 1fr}.knowledge-toolbar{grid-template-columns:1fr 1fr}.knowledge-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.table-row{grid-template-columns:minmax(220px,2fr) .7fr .7fr auto}.table-row>time{display:none}.alert-table-row{grid-template-columns:minmax(220px,2fr) .7fr 1fr auto}.alert-table-row>span:nth-of-type(2){display:none}.event-summary-grid,.detail-fields{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){.app-frame{grid-template-columns:1fr}.app-sidebar{position:static;height:auto;padding:12px}.sidebar-brand{padding-bottom:12px}.sidebar-nav{display:flex;overflow:auto;padding-top:12px}.sidebar-link{flex:none}.sidebar-status{display:none}.page-shell{padding:16px}.page-heading{align-items:flex-start}.page-heading-actions{align-items:flex-start;flex-wrap:wrap}.dashboard-toolbar,.settings-form-grid,.agent-form,.card-grid,.list-toolbar,.knowledge-toolbar,.knowledge-stats,.knowledge-access-grid{grid-template-columns:1fr}.agent-form .full{grid-column:auto}.table-row,.alert-table-row{grid-template-columns:1fr auto}.table-row>span,.table-row>time,.alert-table-row>span{display:none}.event-row-actions{flex-direction:column;align-items:stretch}.event-summary-grid,.detail-fields{grid-template-columns:1fr}.nav-mark{display:none}}
+
+
+/* Incident investigation intake */
+.incident-catalog-toolbar{display:grid;grid-template-columns:minmax(260px,1fr) 220px auto;gap:10px;align-items:center;padding:12px;margin-bottom:14px}
+.incident-catalog-toolbar input,.incident-catalog-toolbar select,.incident-field input,.incident-field select,.incident-field textarea{width:100%;border:1px solid var(--border);background:#fff;color:var(--text);border-radius:9px;padding:10px 11px;outline:none;font:inherit;font-size:12px}
+.incident-catalog-toolbar input:focus,.incident-catalog-toolbar select:focus,.incident-field input:focus,.incident-field select:focus,.incident-field textarea:focus{border-color:#6bb5cf;box-shadow:0 0 0 3px rgba(8,126,164,.1)}
+.incident-catalog-toolbar>span{color:var(--muted);font-size:10px;white-space:nowrap}
+.incident-scenario-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.incident-scenario-card{appearance:none;text-align:left;border:1px solid var(--border);background:#fff;border-radius:11px;padding:15px;cursor:pointer;min-width:0}
+.incident-scenario-card:hover{background:#f8fbfd;border-color:#9bbdce}
+.incident-scenario-card.selected{background:#eef8fc;border-color:#77bdd7;box-shadow:inset 3px 0 0 var(--accent)}
+.incident-scenario-card h2{font-size:14px;line-height:1.35;margin:2px 0 0;overflow-wrap:anywhere}
+.incident-scenario-card p{font-size:11px;color:var(--muted);line-height:1.5;margin:10px 0}
+.incident-field-count{display:inline-block;font-size:9px;color:var(--accent);border:1px solid #bfdbe7;background:#f2f9fc;border-radius:999px;padding:4px 7px}
+.incident-note{margin-bottom:14px}
+.incident-form-panel{padding:18px}
+.incident-form-panel .panel-heading{margin-bottom:13px}
+.incident-form-panel .panel-heading h2{font-size:20px}
+.incident-objective{color:var(--muted);font-size:12px;line-height:1.55;margin:7px 0 0;max-width:900px}
+.incident-focus-box{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:start;border:1px solid #d7e7ef;background:#f5fafc;border-radius:9px;padding:11px 12px;margin-bottom:14px;font-size:11px;line-height:1.5}
+.incident-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+.incident-field{display:grid;gap:5px;min-width:0}
+.incident-field.full{grid-column:1/-1}
+.incident-field textarea{resize:vertical;min-height:100px;line-height:1.45}
+.incident-field small{color:var(--muted);font-size:10px;line-height:1.4}
+.incident-form-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;border-top:1px solid var(--border);margin-top:16px;padding-top:14px}
+.incident-form-footer>div:first-child{display:grid;gap:4px;max-width:820px}
+.incident-form-footer strong{font-size:11px}
+.incident-form-footer span{font-size:10px;line-height:1.45;color:var(--muted)}
+.incident-context-panel{padding:16px;background:#fff}
+.incident-context-summary{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:10px}
+.incident-context-summary>div{display:grid;gap:4px;border:1px solid #dce7ee;background:#f8fbfd;border-radius:9px;padding:10px;min-width:0}
+.incident-context-summary span:last-child{font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+.incident-context-details{margin-top:10px;border-top:1px solid var(--border);padding-top:9px}
+.incident-context-details summary{cursor:pointer;color:var(--accent);font-size:10px}
+.incident-context-details pre{margin:8px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:10px;line-height:1.45;color:#405568}
+
+@media(max-width:1100px){
+  .incident-scenario-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .incident-context-summary{grid-template-columns:1fr 1fr}
+}
+@media(max-width:760px){
+  .incident-catalog-toolbar,.incident-scenario-grid,.incident-form-grid,.incident-context-summary{grid-template-columns:1fr}
+  .incident-field.full{grid-column:auto}
+  .incident-focus-box{grid-template-columns:1fr}
+  .incident-form-footer{align-items:stretch;flex-direction:column}
+}
