@@ -143,7 +143,7 @@ export default function InvestigatorWorkspace(){
       <aside className="panel rightbar">
         <div className="panel-heading"><div><div className="eyebrow">EVIDENCE</div><h2>Splunk searches</h2></div><span className="count">{searches.length}</span></div>
         {searches.length===0?<div className="empty">No Splunk search is executed until the investigation scope is clear.</div>:<div className="search-list">{searches.map(search=><div className="search-card" key={search.searchId}>
-          <div className="search-card-heading"><code>{search.searchId.slice(0,8)}</code><span>{search.resultCount} results</span></div><pre>{search.query}</pre>
+          <div className="search-card-heading"><code>{search.searchId.slice(0,8)}</code><span>{search.phase} · {search.resultCount} results{search.cached?" · cached":""}</span></div><pre>{search.query}</pre>
         </div>)}</div>}
       </aside>
     </div>
