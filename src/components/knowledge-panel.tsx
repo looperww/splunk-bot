@@ -180,56 +180,64 @@ export default function KnowledgePanel(){
         The cache is empty. Run Rediscover from Splunk. If it remains empty, review the discovery details below and confirm that the token can list indexes and data models.
       </div>}
 
-      <section className="panel knowledge-section">
-        <div className="panel-heading"><div><div className="eyebrow">SEARCH INVENTORY</div><h2>Indexes</h2></div><span className="count">{indexes.length} / {knowledge.indexes.length}</span></div>
-        <div className="knowledge-table knowledge-index-table">
-          <div className="knowledge-table-head"><span>Name</span><span>Type</span><span>Searchable</span><span>Events / 30d</span><span>Last seen</span></div>
-          {indexes.map((item)=><div className="knowledge-table-row" key={text(item.id,item.name as string)}>
-            <code>{text(item.name)}</code><span>{text(item.data_type)}</span><span className={item.searchable?"state-good":"state-bad"}>{item.searchable?"Yes":"No"}</span><span>{number(item.event_count_30d)}</span><span>{date(item.last_seen)}</span>
-          </div>)}
-          {!indexes.length&&<div className="empty">No indexes match the current filter.</div>}
+      <details className="panel knowledge-section">
+        <summary className="knowledge-section-summary"><div><div className="eyebrow">SEARCH INVENTORY</div><h2>Indexes</h2></div><span className="count">{indexes.length} / {knowledge.indexes.length}</span></summary>
+        <div className="knowledge-section-body">
+          <div className="knowledge-table knowledge-index-table">
+            <div className="knowledge-table-head"><span>Name</span><span>Type</span><span>Searchable</span><span>Events / 30d</span><span>Last seen</span></div>
+            {indexes.map((item)=><div className="knowledge-table-row" key={text(item.id,item.name as string)}>
+              <code>{text(item.name)}</code><span>{text(item.data_type)}</span><span className={item.searchable?"state-good":"state-bad"}>{item.searchable?"Yes":"No"}</span><span>{number(item.event_count_30d)}</span><span>{date(item.last_seen)}</span>
+            </div>)}
+            {!indexes.length&&<div className="empty">No indexes match the current filter.</div>}
+          </div>
         </div>
-      </section>
+      </details>
 
-      <section className="panel knowledge-section">
-        <div className="panel-heading"><div><div className="eyebrow">EVENT SOURCES</div><h2>Sourcetypes</h2></div><span className="count">{sourcetypes.length} / {knowledge.sourcetypes.length}</span></div>
-        <div className="knowledge-table knowledge-sourcetype-table">
-          <div className="knowledge-table-head"><span>Sourcetype</span><span>Index</span><span>Events / 30d</span><span>First seen</span><span>Last seen</span></div>
-          {sourcetypes.map((item)=><div className="knowledge-table-row" key={text(item.id,text(item.index_name)+":"+text(item.name))}>
-            <code>{text(item.name)}</code><code>{text(item.index_name)}</code><span>{number(item.event_count_30d)}</span><span>{date(item.first_seen)}</span><span>{date(item.last_seen)}</span>
-          </div>)}
-          {!sourcetypes.length&&<div className="empty">No sourcetypes match the current filter.</div>}
+      <details className="panel knowledge-section">
+        <summary className="knowledge-section-summary"><div><div className="eyebrow">EVENT SOURCES</div><h2>Sourcetypes</h2></div><span className="count">{sourcetypes.length} / {knowledge.sourcetypes.length}</span></summary>
+        <div className="knowledge-section-body">
+          <div className="knowledge-table knowledge-sourcetype-table">
+            <div className="knowledge-table-head"><span>Sourcetype</span><span>Index</span><span>Events / 30d</span><span>First seen</span><span>Last seen</span></div>
+            {sourcetypes.map((item)=><div className="knowledge-table-row" key={text(item.id,text(item.index_name)+":"+text(item.name))}>
+              <code>{text(item.name)}</code><code>{text(item.index_name)}</code><span>{number(item.event_count_30d)}</span><span>{date(item.first_seen)}</span><span>{date(item.last_seen)}</span>
+            </div>)}
+            {!sourcetypes.length&&<div className="empty">No sourcetypes match the current filter.</div>}
+          </div>
         </div>
-      </section>
+      </details>
 
-      <section className="panel knowledge-section">
-        <div className="panel-heading"><div><div className="eyebrow">SPLUNK SCHEMA</div><h2>Data models</h2></div><span className="count">{dataModels.length} / {knowledge.dataModels.length}</span></div>
-        <div className="knowledge-table knowledge-model-table">
-          <div className="knowledge-table-head"><span>Name</span><span>App</span><span>Acceleration</span><span>Description</span></div>
-          {dataModels.map((item)=><div className="knowledge-table-row" key={text(item.id,item.name as string)}>
-            <code>{text(item.name)}</code><span>{text(item.app)}</span><span>{item.acceleration_enabled?"Enabled":"Disabled"}</span><span>{text(item.description)}</span>
-          </div>)}
-          {!dataModels.length&&<div className="empty">No data models match the current filter.</div>}
+      <details className="panel knowledge-section">
+        <summary className="knowledge-section-summary"><div><div className="eyebrow">SPLUNK SCHEMA</div><h2>Data models</h2></div><span className="count">{dataModels.length} / {knowledge.dataModels.length}</span></summary>
+        <div className="knowledge-section-body">
+          <div className="knowledge-table knowledge-model-table">
+            <div className="knowledge-table-head"><span>Name</span><span>App</span><span>Acceleration</span><span>Description</span></div>
+            {dataModels.map((item)=><div className="knowledge-table-row" key={text(item.id,item.name as string)}>
+              <code>{text(item.name)}</code><span>{text(item.app)}</span><span>{item.acceleration_enabled?"Enabled":"Disabled"}</span><span>{text(item.description)}</span>
+            </div>)}
+            {!dataModels.length&&<div className="empty">No data models match the current filter.</div>}
+          </div>
         </div>
-      </section>
+      </details>
 
       <section className="knowledge-access-grid">
-        <div className="panel knowledge-section"><div className="panel-heading"><h2>Roles</h2><span className="count">{knowledge.roles.length}</span></div><div className="tag-list">{knowledge.roles.map((role)=><span className="skill-chip" key={role}>{role}</span>)}{!knowledge.roles.length&&<span className="empty">No roles cached.</span>}</div></div>
-        <div className="panel knowledge-section"><div className="panel-heading"><h2>Capabilities</h2><span className="count">{knowledge.capabilities.length}</span></div><div className="tag-list knowledge-capabilities">{knowledge.capabilities.map((capability)=><span className="skill-chip" key={capability}>{capability}</span>)}{!knowledge.capabilities.length&&<span className="empty">No capabilities cached.</span>}</div></div>
+        <details className="panel knowledge-section"><summary className="knowledge-section-summary"><h2>Roles</h2><span className="count">{knowledge.roles.length}</span></summary><div className="knowledge-section-body"><div className="tag-list">{knowledge.roles.map((role)=><span className="skill-chip" key={role}>{role}</span>)}{!knowledge.roles.length&&<span className="empty">No roles cached.</span>}</div></div></details>
+        <details className="panel knowledge-section"><summary className="knowledge-section-summary"><h2>Capabilities</h2><span className="count">{knowledge.capabilities.length}</span></summary><div className="knowledge-section-body"><div className="tag-list knowledge-capabilities">{knowledge.capabilities.map((capability)=><span className="skill-chip" key={capability}>{capability}</span>)}{!knowledge.capabilities.length&&<span className="empty">No capabilities cached.</span>}</div></div></details>
       </section>
 
-      <section className="panel knowledge-section discovery-details">
-        <div className="panel-heading"><div><div className="eyebrow">LATEST RUN</div><h2>Discovery details</h2></div><span className="count">{run?.status??"not run"}</span></div>
-        <dl className="metadata-list">
-          <div><dt>Started</dt><dd>{date(run?.started_at)}</dd></div>
-          <div><dt>Completed</dt><dd>{date(run?.completed_at)}</dd></div>
-          <div><dt>Indexes returned</dt><dd>{number(summary.indexes)}</dd></div>
-          <div><dt>Indexes searched for sourcetypes</dt><dd>{number(summary.sourcetypeIndexesProcessed)}</dd></div>
-          <div><dt>Index/sourcetype pairs</dt><dd>{number(summary.sourcetypes)}</dd></div>
-          <div><dt>Data models returned</dt><dd>{number(summary.dataModels)}</dd></div>
-        </dl>
-        {discoveryErrors.length>0&&<div className="discovery-errors"><span className="label">Errors</span>{discoveryErrors.map((item,index)=><code key={index}>{item}</code>)}</div>}
-      </section>
+      <details className="panel knowledge-section discovery-details">
+        <summary className="knowledge-section-summary"><div><div className="eyebrow">LATEST RUN</div><h2>Discovery details</h2></div><span className="count">{run?.status??"not run"}</span></summary>
+        <div className="knowledge-section-body">
+          <dl className="metadata-list">
+            <div><dt>Started</dt><dd>{date(run?.started_at)}</dd></div>
+            <div><dt>Completed</dt><dd>{date(run?.completed_at)}</dd></div>
+            <div><dt>Indexes returned</dt><dd>{number(summary.indexes)}</dd></div>
+            <div><dt>Indexes searched for sourcetypes</dt><dd>{number(summary.sourcetypeIndexesProcessed)}</dd></div>
+            <div><dt>Index/sourcetype pairs</dt><dd>{number(summary.sourcetypes)}</dd></div>
+            <div><dt>Data models returned</dt><dd>{number(summary.dataModels)}</dd></div>
+          </dl>
+          {discoveryErrors.length>0&&<div className="discovery-errors"><span className="label">Errors</span>{discoveryErrors.map((item,index)=><code key={index}>{item}</code>)}</div>}
+        </div>
+      </details>
     </>}
   </>;
 }
