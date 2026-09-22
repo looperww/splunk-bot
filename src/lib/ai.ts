@@ -237,6 +237,7 @@ export async function planInvestigation(
             raw:eventContext,
           }
         :null,
+      incidentContext,
     );
   }
 
