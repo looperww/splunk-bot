@@ -54,13 +54,21 @@ export async function getSplunkKnowledge(connectionId:string){
 
 
 export function buildKnowledgePrompt(knowledge:Awaited<ReturnType<typeof getSplunkKnowledge>>):string{
-  const indexes=knowledge.indexes.slice(0,100).map((row)=>({
+  const allowed=(process.env.SPLUNK_ALLOWED_INDEXES??"")
+    .split(",").map((v)=>v.trim()).filter(Boolean);
+  const indexes=knowledge.indexes
+    .filter((row)=>allowed.length===0||allowed.includes(String(row.name)))
+    .slice(0,100)
+    .map((row)=>({
     name:String(row.name),
     searchable:Boolean(row.searchable),
     events30d:row.event_count_30d??null,
   }));
 
-  const sourcetypes=knowledge.sourcetypes.slice(0,300).map((row)=>({
+  const sourcetypes=knowledge.sourcetypes
+    .filter((row)=>allowed.length===0||!row.index_name||allowed.includes(String(row.index_name)))
+    .slice(0,300)
+    .map((row)=>({
     index:row.index_name?String(row.index_name):null,
     name:String(row.name),
     events30d:row.event_count_30d??null,
