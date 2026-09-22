@@ -31,6 +31,14 @@ function contentOf(entry:Record<string,unknown>):Record<string,unknown>{
   return content&&typeof content==="object"?(content as Record<string,unknown>):entry;
 }
 
+function stringArray(value:unknown):string[]{
+  if(Array.isArray(value)) return value.map(String).filter(Boolean);
+  if(typeof value==="string"){
+    return value.split(/[\s,]+/).map((item)=>item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
 function primitive(record:Record<string,unknown>,...keys:string[]):string|undefined{
   for(const key of keys){
     if(record[key]!==undefined&&record[key]!==null&&String(record[key]).trim()!==""){
@@ -88,8 +96,8 @@ export async function testSplunkConnection(input:{
 
   const identity:SplunkIdentity={
     username:primitive(context,"username","user"),
-    roles:Array.isArray(context.roles)?context.roles.map(String):[],
-    capabilities:Array.isArray(context.capabilities)?context.capabilities.map(String):[],
+    roles:stringArray(context.roles),
+    capabilities:stringArray(context.capabilities),
     defaultApp:primitive(context,"default_app","defaultApp"),
     timezone:primitive(context,"timezone"),
   };
