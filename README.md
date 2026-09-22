@@ -93,17 +93,33 @@ Then:
 
 ## Splunk configuration
 
-    SPLUNK_BASE_URL=https://splunk.example.com:8089
-    SPLUNK_TOKEN=
-    AME_EVENTS_PATH=/services/ame_events
-    SPLUNK_SEARCH_PATH=/services/search/v2/jobs/export
+Splunk URL and tokens are configured from the web UI. Tokens are encrypted with AES-256-GCM before being stored in PostgreSQL.
+
+Optional environment policy:
+
+    SPLUNK_ALLOWED_INDEXES=
     SPLUNK_ALLOWED_INDEXES=
 
 ## AI configuration
 
+OpenAI is optional. Use local Splunk test mode with:
+
+    AI_PROVIDER=mock
+    OPENAI_API_KEY=
+
+When a key is available:
+
     AI_PROVIDER=openai
     OPENAI_API_KEY=
     OPENAI_MODEL=
+
+## Database and connection security
+
+- PostgreSQL stores application state and encrypted Splunk tokens.
+- The AES-256-GCM encryption key stays outside PostgreSQL.
+- The browser never receives the stored token after saving.
+- The first successful connection performs controlled Splunk discovery and caches environment metadata for future investigations.
+- The cached knowledge is used to reduce repeated environment-discovery queries and model context cost.
 
 ## Current security controls
 
