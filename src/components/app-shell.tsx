@@ -21,6 +21,7 @@ const navigation=[
   {href:"/alerts",label:"Alerts",mark:"A"},
   {href:"/skills",label:"Skills",mark:"S"},
   {href:"/agents",label:"Agents",mark:"G"},
+  {href:"/knowledge",label:"Knowledge",mark:"K"},
   {href:"/settings",label:"Settings",mark:"⚙"},
 ];
 

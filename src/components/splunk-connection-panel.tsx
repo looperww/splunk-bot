@@ -8,15 +8,6 @@ type ConnectionResponse={
   error?:string;
 };
 
-type KnowledgeResponse={
-  knowledge?:{
-    indexes?:Array<{name:string;event_count_30d?:number|null;disabled?:boolean|null}>;
-    sourcetypes?:Array<{name:string;index_name?:string|null}>;
-    dataModels?:Array<{name:string;acceleration_enabled?:boolean|null}>;
-  };
-  error?:string;
-};
-
 type Props={
   connectionId:string|null;
   onConnectionReady:(connection:StoredSplunkConnection)=>void;
@@ -37,16 +28,10 @@ export default function SplunkConnectionPanel({
   const [busy,setBusy]=useState<
     "loading"|"testing"|"saving"|"rediscovering"|"deleting"|""|null
   >("loading");
-  const [knowledge,setKnowledge]=useState<KnowledgeResponse["knowledge"]>();
 
   useEffect(()=>{
     void loadConnections();
   },[]);
-
-  useEffect(()=>{
-    if(connectionId) void loadKnowledge(connectionId);
-    else setKnowledge(undefined);
-  },[connectionId]);
 
   async function loadConnections(){
     setBusy("loading");
@@ -76,31 +61,6 @@ export default function SplunkConnectionPanel({
       );
     }finally{
       setBusy(null);
-    }
-  }
-
-  async function loadKnowledge(id:string){
-    try{
-      const response=await fetch(
-        "/api/splunk/connections/"+encodeURIComponent(id)+"/knowledge",
-        {cache:"no-store"},
-      );
-      const data=await response.json() as KnowledgeResponse;
-
-      if(!response.ok){
-        throw new Error(
-          data.error??"Failed to load cached Splunk knowledge.",
-        );
-      }
-
-      setKnowledge(data.knowledge);
-    }catch(err){
-      setKnowledge(undefined);
-      setStatus(
-        err instanceof Error
-          ?err.message
-          :"Failed to load cached Splunk knowledge.",
-      );
     }
   }
 
@@ -213,7 +173,6 @@ export default function SplunkConnectionPanel({
           :""),
       );
 
-      await loadKnowledge(data.connection.id);
     }catch(err){
       setError(
         err instanceof Error
@@ -376,7 +335,6 @@ export default function SplunkConnectionPanel({
           :""),
       );
 
-      await loadKnowledge(connectionId);
       await loadConnections();
     }catch(err){
       setError(
@@ -508,49 +466,6 @@ export default function SplunkConnectionPanel({
 
     {status&&<div className="status-box">{status}</div>}
     {error&&<div className="error-box">{error}</div>}
-
-    {knowledge&&<div className="knowledge-panel">
-      <div className="knowledge-heading">
-        <span className="label">CACHED KNOWLEDGE</span>
-        <span>
-          {knowledge.indexes?.length??0} indexes ·{" "}
-          {knowledge.sourcetypes?.length??0} sourcetypes ·{" "}
-          {knowledge.dataModels?.length??0} data models
-        </span>
-      </div>
-
-      <div className="knowledge-columns">
-        <div>
-          <span className="label">Indexes</span>
-          <div className="knowledge-list">
-            {(knowledge.indexes??[]).slice(0,20).map((index)=>(
-              <div key={index.name} className="knowledge-item">
-                <code>{index.name}</code>
-                {index.event_count_30d!==null&&index.event_count_30d!==undefined&&
-                  <small>
-                    {Number(index.event_count_30d).toLocaleString()} / 30d
-                  </small>
-                }
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <span className="label">Data models</span>
-          <div className="knowledge-list">
-            {(knowledge.dataModels??[]).slice(0,20).map((model)=>(
-              <div key={model.name} className="knowledge-item">
-                <code>{model.name}</code>
-                <small>
-                  {model.acceleration_enabled?"accelerated":"not accelerated"}
-                </small>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>}
 
     {!busy&&connections.length===0&&!error&&
       <div className="empty">

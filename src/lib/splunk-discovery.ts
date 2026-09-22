@@ -139,23 +139,7 @@ export async function testStoredConnection(id:string){
       error:null,
     });
 
-    await withDb(async(client)=>{
-      await client.query("DELETE FROM splunk_connection_roles WHERE connection_id=$1",[id]);
-      for(const role of result.identity.roles){
-        await client.query(
-          "INSERT INTO splunk_connection_roles(connection_id,role) VALUES($1,$2) ON CONFLICT DO NOTHING",
-          [id,role],
-        );
-      }
-
-      await client.query("DELETE FROM splunk_connection_capabilities WHERE connection_id=$1",[id]);
-      for(const capability of result.identity.capabilities){
-        await client.query(
-          "INSERT INTO splunk_connection_capabilities(connection_id,capability) VALUES($1,$2) ON CONFLICT DO NOTHING",
-          [id,capability],
-        );
-      }
-    });
+    await cacheIdentityAccess(id,result.identity);
 
     return result;
   }catch(error){
@@ -165,6 +149,26 @@ export async function testStoredConnection(id:string){
     });
     throw error;
   }
+}
+
+async function cacheIdentityAccess(id:string,identity:SplunkIdentity){
+  await withDb(async(client)=>{
+    await client.query("DELETE FROM splunk_connection_roles WHERE connection_id=$1",[id]);
+    for(const role of identity.roles){
+      await client.query(
+        "INSERT INTO splunk_connection_roles(connection_id,role) VALUES($1,$2) ON CONFLICT DO NOTHING",
+        [id,role],
+      );
+    }
+
+    await client.query("DELETE FROM splunk_connection_capabilities WHERE connection_id=$1",[id]);
+    for(const capability of identity.capabilities){
+      await client.query(
+        "INSERT INTO splunk_connection_capabilities(connection_id,capability) VALUES($1,$2) ON CONFLICT DO NOTHING",
+        [id,capability],
+      );
+    }
+  });
 }
 
 function stringValue(value:unknown):string|undefined{
@@ -207,6 +211,8 @@ export async function discoverSplunkConnection(id:string){
       error:null,
     });
 
+    await cacheIdentityAccess(id,tested.identity);
+
     const [indexPayload,modelPayload]=await Promise.all([
       splunkRest(connection.baseUrl,connection.token,"/services/data/indexes",{output_mode:"json",count:0}),
       splunkRest(connection.baseUrl,connection.token,"/services/datamodel/model",{output_mode:"json",count:0}),
@@ -215,7 +221,10 @@ export async function discoverSplunkConnection(id:string){
     const indexes=atomEntries(indexPayload).map((entry)=>{
       const item=contentOf(entry);
       return {
-        name:primitive(item,"title","name"),
+        // Splunk collection endpoints expose the resource name on the Atom
+        // entry, not in entry.content. Falling back to content keeps this
+        // compatible with proxied/custom Splunk responses.
+        name:primitive(entry,"name","title")??primitive(item,"name","title"),
         dataType:primitive(item,"data_type","datatype","dataType"),
         disabled:boolValue(item.disabled),
         raw:item,
@@ -243,9 +252,12 @@ export async function discoverSplunkConnection(id:string){
 
     const models=atomEntries(modelPayload).map((entry)=>{
       const item=contentOf(entry);
+      const acl=entry.acl&&typeof entry.acl==="object"
+        ?entry.acl as Record<string,unknown>
+        :{};
       return {
-        name:primitive(item,"title","name"),
-        app:primitive(item,"eai:app","app"),
+        name:primitive(entry,"name","title")??primitive(item,"name","title"),
+        app:primitive(acl,"app")??primitive(item,"eai:app","eai:appName","app"),
         description:primitive(item,"description"),
         accelerationEnabled:boolValue(item.acceleration_enabled??item.acceleration_enabled_real_time),
         raw:item,
@@ -343,6 +355,12 @@ export async function discoverSplunkConnection(id:string){
           );
         }
       }));
+    }
+
+    if(indexes.length===0){
+      sourcetypeErrors.push(
+        "Splunk returned no visible indexes. Verify the token's index access and list/search capabilities.",
+      );
     }
 
     const partial=indexes.length>maxIndexesForMetadata||sourcetypeErrors.length>0;
