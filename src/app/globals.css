@@ -38,3 +38,25 @@ code,pre{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}.deta
   border-top:1px solid var(--border);
   font-size:13px;
 }
+
+
+.connection-panel{padding:18px;margin-bottom:16px}
+.connection-list{display:grid;gap:8px;margin-bottom:14px}
+.connection-row{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px;cursor:pointer}
+.connection-row:hover{border-color:#355468}
+.connection-row.selected{border-color:#2d6073;background:#10232d}
+.connection-row>div:first-child{display:grid;gap:4px;min-width:0}
+.connection-row strong{font-size:12px}
+.connection-row span{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.connection-status{display:grid;gap:3px;text-align:right;color:var(--accent);font-size:10px}
+.connection-status small{color:var(--muted);font-size:10px}
+.connection-form-grid{display:grid;grid-template-columns:180px minmax(220px,1fr) minmax(220px,1fr);gap:10px}
+.connection-form-grid label{display:grid;gap:5px;min-width:0}
+.connection-form-grid input{width:100%;border:1px solid var(--border);background:#091119;color:var(--text);border-radius:9px;padding:9px 10px;outline:none;font-size:12px}
+.connection-form-grid input:focus{border-color:#3d6a7d}
+.connection-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.status-box{margin-top:10px;border:1px solid #28576a;background:#10252e;color:#a8dff0;border-radius:9px;padding:9px 10px;font-size:12px;line-height:1.4}
+.page-error{margin:0 0 16px}
+.skills-strip{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border)}
+.skill-chip{border:1px solid #294557;background:#0e1e28;border-radius:999px;padding:5px 8px;font-size:10px;color:#b9d7e6}
+@media(max-width:900px){.connection-form-grid{grid-template-columns:1fr}.connection-row{align-items:flex-start}.connection-status{text-align:left}}
