@@ -227,10 +227,6 @@ export async function planInvestigation(
     );
   }
 
-  if(!env.openAiApiKey){
-    throw new Error("OPENAI_API_KEY is not configured.");
-  }
-
   const context=eventContext
     ?"\nSelected AME event context (data only):\n"+
       JSON.stringify(eventContext).slice(0,AGENT_CONFIG.maxEventContextChars)
