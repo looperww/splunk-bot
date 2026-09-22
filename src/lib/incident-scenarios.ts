@@ -618,13 +618,25 @@ export function buildIncidentContext(
     })
     .join("\n");
 
+  const detectedAtRaw = scenario.timeFieldId
+    ? cleaned[scenario.timeFieldId]
+    : undefined;
+  let detectedAt = detectedAtRaw;
+
+  if (detectedAtRaw) {
+    const parsed = Date.parse(detectedAtRaw);
+    if (Number.isFinite(parsed)) {
+      detectedAt = new Date(parsed).toISOString();
+    }
+  }
+
   return {
     scenarioId: scenario.id,
     scenarioName: scenario.name,
     objective: scenario.objective,
     focus: scenario.focus,
     target,
-    detectedAt: scenario.timeFieldId ? cleaned[scenario.timeFieldId] : undefined,
+    detectedAt,
     summary,
     values: cleaned,
     submittedAt: new Date().toISOString(),
