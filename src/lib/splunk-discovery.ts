@@ -400,14 +400,23 @@ async function splunkSearchForMetadata(
   index:string,
 ){
   const url=new URL("/services/search/v2/jobs/export",baseUrl);
-  const search="| metadata type=sourcetypes index=\""+index.replace(/"/g,'\\\\\\"')+"\"";
+  const search="| metadata type=sourcetypes index=\""+index.replace(/"/g,'\\\\\"')+"\"";
+  const body=new URLSearchParams({
+    search,
+    earliest_time:"-30d",
+    latest_time:"now",
+    output_mode:"json",
+    preview:"false",
+  });
 
   const response=await fetch(url,{
-    method:"GET",
+    method:"POST",
     headers:{
       Authorization:"Bearer "+token,
       Accept:"application/json",
+      "Content-Type":"application/x-www-form-urlencoded",
     },
+    body,
     cache:"no-store",
     signal:AbortSignal.timeout(30000),
   });
