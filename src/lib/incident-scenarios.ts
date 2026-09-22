@@ -622,6 +622,7 @@ export function buildIncidentContext(
     scenarioId: scenario.id,
     scenarioName: scenario.name,
     objective: scenario.objective,
+    focus: scenario.focus,
     target,
     detectedAt: scenario.timeFieldId ? cleaned[scenario.timeFieldId] : undefined,
     summary,
