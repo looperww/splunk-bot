@@ -261,52 +261,74 @@ export async function discoverSplunkConnection(id:string){
     let sourcetypePairs=0;
     const sourcetypeErrors:string[]=[];
     const maxIndexesForMetadata=100;
+    const indexesForMetadata=indexes.slice(0,maxIndexesForMetadata);
+    const metadataConcurrency=5;
 
-    for(const index of indexes.slice(0,maxIndexesForMetadata)){
-      try{
-        const payload=await splunkSearchForMetadata(
-          connection.baseUrl,
-          connection.token,
-          index.name,
-        );
+    for(let offset=0;offset<indexesForMetadata.length;offset+=metadataConcurrency){
+      const batch=indexesForMetadata.slice(
+        offset,
+        offset+metadataConcurrency,
+      );
 
-        const rows=parseMetadata(payload);
-        const indexRow=await query<Record<string,unknown>>(
-          "SELECT id FROM splunk_indexes WHERE connection_id=$1 AND name=$2 LIMIT 1",
-          [id,index.name],
-        );
-        const indexId=indexRow[0]?.id?String(indexRow[0].id):null;
-        if(!indexId) continue;
+      await Promise.all(batch.map(async(index)=>{
+        try{
+          const payload=await splunkSearchForMetadata(
+            connection.baseUrl,
+            connection.token,
+            index.name,
+          );
 
-        await withDb(async(client)=>{
-          for(const row of rows){
-            if(!row.sourcetype) continue;
-            await client.query(
-              `INSERT INTO splunk_sourcetypes(
-                 id,connection_id,index_id,name,event_count_30d,first_seen,last_seen,raw_metadata
-               ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
-               ON CONFLICT(connection_id,index_id,name) DO UPDATE SET
-                 event_count_30d=EXCLUDED.event_count_30d,
-                 first_seen=EXCLUDED.first_seen,
-                 last_seen=EXCLUDED.last_seen,
-                 raw_metadata=EXCLUDED.raw_metadata,
-                 updated_at=NOW()`,
-              [
-                randomUUID(),id,indexId,row.sourcetype,
-                row.totalCount??null,
-                row.firstTime?new Date(row.firstTime).toISOString():null,
-                row.recentTime?new Date(row.recentTime).toISOString():null,
-                JSON.stringify(row.raw),
-              ],
-            );
-            sourcetypePairs++;
-          }
-        });
-      }catch(error){
-        sourcetypeErrors.push(
-          index.name+": "+(error instanceof Error?error.message:"metadata query failed"),
-        );
-      }
+          const rows=parseMetadata(payload);
+          const indexRow=await query<Record<string,unknown>>(
+            "SELECT id FROM splunk_indexes WHERE connection_id=$1 AND name=$2 LIMIT 1",
+            [id,index.name],
+          );
+          const indexId=indexRow[0]?.id?String(indexRow[0].id):null;
+          if(!indexId) return;
+
+          await withDb(async(client)=>{
+            for(const row of rows){
+              if(!row.sourcetype) continue;
+
+              await client.query(
+                `INSERT INTO splunk_sourcetypes(
+                   id,connection_id,index_id,name,event_count_30d,first_seen,last_seen,raw_metadata
+                 ) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+                 ON CONFLICT(connection_id,index_id,name) DO UPDATE SET
+                   event_count_30d=EXCLUDED.event_count_30d,
+                   first_seen=EXCLUDED.first_seen,
+                   last_seen=EXCLUDED.last_seen,
+                   raw_metadata=EXCLUDED.raw_metadata,
+                   updated_at=NOW()`,
+                [
+                  randomUUID(),
+                  id,
+                  indexId,
+                  row.sourcetype,
+                  row.totalCount??null,
+                  toDate(row.firstTime),
+                  toDate(row.recentTime),
+                  JSON.stringify(row.raw),
+                ],
+              );
+              sourcetypePairs++;
+            }
+          });
+        }catch(error){
+          sourcetypeErrors.push(
+            index.name+": "+(
+              error instanceof Error
+                ?error.message
+                :"metadata query failed"
+            ),
+          );
+
+          await query(
+            "UPDATE splunk_indexes SET searchable=FALSE,updated_at=NOW() WHERE connection_id=$1 AND name=$2",
+            [id,index.name],
+          );
+        }
+      }));
     }
 
     const partial=indexes.length>maxIndexesForMetadata||sourcetypeErrors.length>0;
@@ -384,6 +406,13 @@ async function splunkSearchForMetadata(
     );
   }
   return text;
+}
+
+function toDate(value:number|undefined):string|null{
+  if(value===undefined||!Number.isFinite(value)) return null;
+  const milliseconds=value<1_000_000_000_000?value*1000:value;
+  const date=new Date(milliseconds);
+  return Number.isNaN(date.getTime())?null:date.toISOString();
 }
 
 function parseMetadata(payload:unknown):Array<{
