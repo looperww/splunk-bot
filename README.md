@@ -29,9 +29,7 @@ The repository contains the first runnable application scaffold:
 - Conversational investigation UI
 - Dynamic clarification questions before searching
 - Quick-answer options for common scope choices
-- Structured investigation scope display
-- OpenAI Responses API integration with a read-only Splunk search tool
-- Search/evidence panel
+- Structured investigation scope display\n- Multi-phase agent loop with skill-guided baseline, pivot, and confirmation searches\n- Agent search budgets and application-enforced time-window binding\n- OpenAI Responses API integration with a governed read-only Splunk search agent\n- Search/evidence panel
 - Demo mode for local UI work
 - Docker deployment scaffold
 
@@ -62,8 +60,7 @@ The repository contains the first runnable application scaffold:
 
 The bot should not perform a broad Splunk search simply because the analyst used the word "investigate".
 
-## Architecture
-
+## Agent definition\n\nThe investigation agent is defined in `docs/agent.md`. It uses an intake/scope gate, curated security skills, an evidence-driven multi-step search loop, and a structured final report. The model chooses investigation steps; the application enforces scope, budgets, read-only permissions, and query guardrails.\n\n## Architecture\n
     Browser
       |
       v
