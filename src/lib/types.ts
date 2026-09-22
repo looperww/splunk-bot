@@ -1,6 +1,37 @@
-export type ChatMessage = { id?: string; role: "user" | "assistant"; content: string };
+export type ChatMessage = {
+  id?: string;
+  role: "user" | "assistant";
+  content: string;
+};
+
 export type AmeEvent = {
-  id:string; title:string; status?:string; urgency?:string; created?:string; owner?:string;
+  id:string;
+  title:string;
+  status?:string;
+  urgency?:string;
+  created?:string;
+  owner?:string;
   raw:Record<string,unknown>;
 };
-export type SearchAudit = { searchId:string; query:string; resultCount:number; truncated:boolean };
+
+export type SearchAudit = {
+  searchId:string;
+  query:string;
+  resultCount:number;
+  truncated:boolean;
+};
+
+export type InvestigationQuestion = {
+  id:string;
+  question:string;
+  options:string[];
+};
+
+export type InvestigationScope = {
+  objective:string;
+  target:string;
+  earliest:string;
+  latest:string;
+  dataSources:string;
+  focus:string;
+};

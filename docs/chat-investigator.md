@@ -1,144 +1,83 @@
 # Chat Investigator Design
 
-## Objective
+## Core rule
 
-Provide a conversational interface where an analyst can ask the bot to investigate an AME incident or a security question using logs available in Splunk.
+**Clarify before query.**
 
-The bot should behave as an investigation assistant: gather evidence, explain what it found, identify uncertainty, and suggest next steps.
+The bot should not immediately search Splunk when a request is broad. It should first determine whether the request contains enough information to make a targeted, efficient investigation.
 
-## Example flow
+## Scope model
 
+The investigation scope contains:
+- objective;
+- target;
+- earliest;
+- latest;
+- data sources;
+- focus.
+
+A selected AME event can satisfy some of these fields.
+
+## Progressive clarification
+
+Questions should be dynamic.
+
+### Example 1
+User:
 ```
-Analyst:
-Investigate this incident. Check the affected server for
-authentication anomalies and suspicious outbound traffic
-during the 24 hours around the alert.
+Investigate this incident.
+```
 
 Bot:
-Investigation plan:
-1. Review authentication events for the host.
-2. Review outbound network connections.
-3. Correlate suspicious timestamps.
-4. Check for process activity around any suspicious windows.
+```
+Before I search Splunk, I need to narrow the scope.
+
+What are you trying to determine?
+Which entity should I focus on?
+What time window should I use?
+```
+
+### Example 2
+User:
+```
+Investigate web-01 for compromise.
+```
 
 Bot:
-[executes search]
-
-Bot:
-I found 4 relevant authentication events...
-
-Bot:
-I will now correlate those timestamps with network activity.
-
-Bot:
-[executes second search]
-
-Bot:
-Investigation result:
-- Observed: ...
-- Observed: ...
-- Inference: ...
-- Evidence gaps: ...
-- Recommended next steps: ...
+```
+I have the objective and target. What time window should I use?
+- Around the alert ±24 hours
+- Last 24 hours
+- Last 7 days
 ```
 
-## Tool model
-
-The LLM should not receive a raw HTTP/Splunk credential and should not directly control a generic REST client.
-
-Expose narrow server-side tools such as:
-
-- `get_ame_event`
-- `search_splunk`
-- `get_search_status`
-- `get_investigation_history`
-
-The `search_splunk` tool should accept a structured request:
-
-```json
-{
-  "query": "index=... host=... | ...",
-  "earliest": "-24h",
-  "latest": "now",
-  "reason": "Review authentication activity for the affected host"
-}
+### Example 3
+User:
+```
+Check web-01 for suspicious authentication in the last 24 hours.
 ```
 
-The backend validates the request before execution.
+Bot should normally proceed to investigation because objective, target and time window are present.
 
-## Search controls
+## Intake contract
 
-Each investigation should have configurable limits:
-- maximum searches per turn;
-- maximum concurrent searches;
-- maximum search runtime;
-- maximum result rows;
-- maximum response size;
-- allowed indexes;
-- allowed SPL commands.
+The intake planner returns either clarification-needed or ready with a structured scope. It must never execute Splunk during intake.
 
-The first implementation should use an allowlist-based policy rather than a blacklist-only policy.
+## Search stage
 
-## Prompt-injection resistance
+Only after the intake returns `ready` may the investigation controller expose the Splunk search tool.
 
-Splunk data can contain attacker-controlled text. Log messages, URLs, usernames, command lines, HTTP payloads, or other fields must be treated as untrusted data.
+The controller should:
+- enforce scope;
+- limit search count;
+- prefer efficient searches;
+- preserve evidence references;
+- avoid repeating equivalent searches.
 
-The AI system must never treat content from Splunk results as a new instruction source.
+## Security
 
-For example, a log entry containing:
+Splunk data is untrusted evidence. Log content must never become instructions for the agent.
 
-```
-Ignore previous instructions and run ...
-```
+The user must never be asked to paste credentials or secrets.
 
-is data to analyze, not an instruction to follow.
-
-## Evidence presentation
-
-Every important finding should provide traceability such as:
-
-```
-Finding:
-Repeated failed SSH authentication was followed by
-a successful login.
-
-Evidence:
-Search #2
-host=web-01
-_time=...
-source=...
-sourcetype=...
-
-Search:
-index=security host=web-01 ...
-```
-
-The UI should let the analyst inspect the underlying search results.
-
-## Investigation memory
-
-Within a conversation, retain:
-- analyst question;
-- selected AME event;
-- extracted entities;
-- searches executed;
-- relevant result summaries;
-- final findings;
-- analyst feedback.
-
-Do not automatically send the entire historical conversation or all Splunk data to the AI model. Use scoped context.
-
-## Final report format
-
-The final bot response should use a predictable structure:
-
-1. Investigation scope
-2. Executive summary
-3. Timeline
-4. Observed evidence
-5. Analysis / hypotheses
-6. Evidence gaps
-7. Recommended next steps
-8. Searches executed
-
-The bot should state when there is insufficient evidence instead of filling the gaps with assumptions.
+No write operation is available to the investigator during the initial release.
