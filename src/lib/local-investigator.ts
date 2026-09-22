@@ -1,5 +1,5 @@
 import { searchSplunk } from "@/lib/splunk";
-import { getSplunkKnowledge, type getSplunkKnowledge as KnowledgeFn } from "@/lib/splunk-knowledge";
+import { getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey } from "@/lib/agent";
 import type { InvestigationScope } from "@/lib/investigation";
 
@@ -83,11 +83,9 @@ function targetFilter(eventContext:Record<string,unknown>|undefined,scope:Invest
 export async function investigateLocally(
   eventContext:Record<string,unknown>|undefined,
   scope:InvestigationScope,
+  connectionId:string,
 ):Promise<LocalInvestigationResult>{
-  const knowledge=await getSplunkKnowledge(
-    (eventContext?.connectionId?String(eventContext.connectionId):"") ||
-    String(process.env.DEFAULT_SPLUNK_CONNECTION_ID??""),
-  );
+  const knowledge=await getSplunkKnowledge(connectionId);
 
   const indexes=pickIndexes(knowledge,scope);
   if(!indexes.length){
@@ -105,7 +103,6 @@ export async function investigateLocally(
     };
   }
 
-  const connectionId=eventContext?.connectionId?String(eventContext.connectionId):undefined;
   const searches:LocalInvestigationResult["searches"]=[];
   const cache=new Map<string,Awaited<ReturnType<typeof searchSplunk>>>();
   let searchCount=0;
