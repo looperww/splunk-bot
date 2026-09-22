@@ -4,13 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { StoredSplunkConnection } from "@/lib/connections";
-import type { AmeEvent } from "@/lib/types";
+import type { AmeEvent, IncidentContext } from "@/lib/types";
 
 type AppState={
   selectedConnection:StoredSplunkConnection|null;
   setSelectedConnection:(connection:StoredSplunkConnection|null)=>void;
   selectedEvent:AmeEvent|null;
   setSelectedEvent:(event:AmeEvent|null)=>void;
+  selectedIncident:IncidentContext|null;
+  setSelectedIncident:(incident:IncidentContext|null)=>void;
 };
 
 const AppStateContext=createContext<AppState|null>(null);
@@ -18,6 +20,7 @@ const AppStateContext=createContext<AppState|null>(null);
 const navigation=[
   {href:"/dashboard",label:"Dashboard",mark:"D"},
   {href:"/events",label:"Events",mark:"E"},
+  {href:"/incidents",label:"Incidents",mark:"I"},
   {href:"/alerts",label:"Alerts",mark:"A"},
   {href:"/skills",label:"Skills",mark:"S"},
   {href:"/agents",label:"Agents",mark:"G"},
@@ -35,11 +38,14 @@ export default function AppShell({children}:{children:React.ReactNode}){
   const pathname=usePathname();
   const [selectedConnection,setConnection]=useState<StoredSplunkConnection|null>(null);
   const [selectedEvent,setEvent]=useState<AmeEvent|null>(null);
+  const [selectedIncident,setIncident]=useState<IncidentContext|null>(null);
 
   useEffect(()=>{
     try{
       const raw=sessionStorage.getItem("splunk-bot-selected-event");
       if(raw) setEvent(JSON.parse(raw) as AmeEvent);
+      const incidentRaw=sessionStorage.getItem("splunk-bot-selected-incident");
+      if(incidentRaw) setIncident(JSON.parse(incidentRaw) as IncidentContext);
     }catch{}
 
     void fetch("/api/splunk/connections",{cache:"no-store"})
@@ -66,12 +72,20 @@ export default function AppShell({children}:{children:React.ReactNode}){
     else sessionStorage.removeItem("splunk-bot-selected-event");
   }
 
+  function setSelectedIncident(incident:IncidentContext|null){
+    setIncident(incident);
+    if(incident) sessionStorage.setItem("splunk-bot-selected-incident",JSON.stringify(incident));
+    else sessionStorage.removeItem("splunk-bot-selected-incident");
+  }
+
   const value=useMemo<AppState>(()=>({
     selectedConnection,
     setSelectedConnection,
     selectedEvent,
     setSelectedEvent,
-  }),[selectedConnection,selectedEvent]);
+    selectedIncident,
+    setSelectedIncident,
+  }),[selectedConnection,selectedEvent,selectedIncident]);
 
   return <AppStateContext.Provider value={value}>
     <div className="app-frame">
