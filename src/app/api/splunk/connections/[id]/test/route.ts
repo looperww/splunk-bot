@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getConnection, updateConnectionTest } from "@/lib/connections";
+import { getConnection } from "@/lib/connections";
 import { testStoredConnection } from "@/lib/splunk-discovery";
 
 export async function POST(
