@@ -213,7 +213,7 @@ export async function planInvestigation(
 ):Promise<InvestigationPlan>{
   const env=getEnv();
 
-  if(env.aiProvider==="mock"){
+  if(env.aiProvider==="mock"||!env.openAiApiKey){
     return mockClarificationPlan(
       messages,
       eventContext
