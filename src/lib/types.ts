@@ -21,6 +21,7 @@ export type SearchAudit = {
   truncated:boolean;
   phase:"baseline"|"pivot"|"confirmation";
   cached:boolean;
+  evidencePreview?:Record<string,unknown>[];
 };
 
 export type AgentBudget = {
