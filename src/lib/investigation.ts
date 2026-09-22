@@ -1,4 +1,4 @@
-import type { AmeEvent, ChatMessage } from "@/lib/types";
+import type { AmeEvent, ChatMessage, IncidentContext } from "@/lib/types";
 
 export type InvestigationScope = {
   objective: string;
@@ -119,61 +119,107 @@ export function buildScopePrompt(
 export function mockClarificationPlan(
   messages: ChatMessage[],
   event?: AmeEvent | null,
+  incident?: IncidentContext | null,
 ): InvestigationPlan {
   const lastUser = [...messages].reverse().find((message) => message.role === "user");
-  const text = lastUser?.content ?? "";
-  const aroundAlert = /around the alert\s*[±+/-]?\s*24\s*hours?/i.test(text);
-  const last24h = /last\s*24\s*hours?/i.test(text);
-  const last7d = /last\s*(7\s*days?|week)/i.test(text);
-  const relativeTime = /last\s+(hour|2 hours|4 hours|day|week)/i.test(text) ||
-    /\b\d+\s*(m|h|d|days?|hours?)\b/i.test(text);
-  const hasTime = aroundAlert || last24h || last7d || relativeTime;
+  const userText = lastUser?.content ?? "";
 
-  const alertTime = event?.created ? Date.parse(String(event.created)) : NaN;
+  const aroundAlert = /around the alert\s*[±+/-]?\s*24\s*hours?/i.test(userText);
+  const last24h = /last\s*24\s*hours?/i.test(userText);
+  const last7d = /last\s*(7\s*days?|week)/i.test(userText);
+  const relativeTime =
+    /last\s+(hour|2 hours|4 hours|day|week)/i.test(userText) ||
+    /\b\d+\s*(m|h|d|days?|hours?)\b/i.test(userText);
+
+  const incidentTime = incident?.detectedAt ? Date.parse(incident.detectedAt) : NaN;
+  const eventTime = event?.created ? Date.parse(String(event.created)) : NaN;
+  const anchorTime = Number.isFinite(incidentTime)
+    ? incidentTime
+    : Number.isFinite(eventTime)
+      ? eventTime
+      : NaN;
+
+  const hasExplicitUserTime = aroundAlert || last24h || last7d || relativeTime;
+  const hasIncidentTime = Boolean(incident?.detectedAt);
+
   let earliest = "";
   let latest = "";
-  if (aroundAlert && Number.isFinite(alertTime)) {
-    earliest = new Date(alertTime - 24 * 60 * 60 * 1000).toISOString();
-    latest = new Date(alertTime + 24 * 60 * 60 * 1000).toISOString();
+
+  if (aroundAlert && Number.isFinite(anchorTime)) {
+    earliest = new Date(anchorTime - 24 * 60 * 60 * 1000).toISOString();
+    latest = new Date(anchorTime + 24 * 60 * 60 * 1000).toISOString();
+  } else if (hasIncidentTime && Number.isFinite(incidentTime)) {
+    earliest = new Date(incidentTime - 24 * 60 * 60 * 1000).toISOString();
+    latest = new Date(incidentTime + 24 * 60 * 60 * 1000).toISOString();
   } else if (last24h) {
     earliest = "-24h";
     latest = "now";
   } else if (last7d) {
     earliest = "-7d";
     latest = "now";
-  } else if (hasTime) {
+  } else if (relativeTime) {
     earliest = "-24h";
     latest = "now";
   }
 
+  const incidentObjective = incident?.objective?.trim() || "";
+  const objective = incidentObjective || userText.slice(0, 500);
+  const target =
+    incident?.target?.trim() ||
+    (event?.id ? "AME event " + event.id : "");
+
   const scope: InvestigationScope = {
-    objective: text.slice(0, 500),
-    target: event?.id ? "AME event " + event.id : "",
+    objective,
+    target,
     earliest,
     latest,
-    dataSources: "",
-    focus: "",
+    dataSources: incident?.scenarioName
+      ? "Use telemetry relevant to the " + incident.scenarioName + " scenario."
+      : "",
+    focus: incident?.focus || "",
   };
 
-  if (event && hasTime) return { status: "ready", scope };
+  if ((incident || event) && objective && target && earliest && latest) {
+    return { status: "ready", scope };
+  }
 
   const questions: InvestigationQuestion[] = [];
 
-  if (!event) {
+  if (!objective) {
+    questions.push({
+      id: "objective",
+      question: "What are you trying to determine from this investigation?",
+      options: [
+        "Whether this represents a real security incident",
+        "What happened and what activity occurred",
+        "Whether a host, user, or account was compromised",
+      ],
+    });
+  }
+
+  if (!target) {
     questions.push({
       id: "target",
-      question: "Which entity or incident should I investigate?",
+      question: "Which entity should I investigate (host, user, IP, domain, account, or another identifier)?",
       options: [],
     });
   }
 
-  if (!hasTime) {
+  if (!earliest || !latest) {
     questions.push({
       id: "time_range",
       question: "What time window should I use?",
-      options: ["Around the alert ±24 hours", "Last 24 hours", "Last 7 days"],
+      options: [
+        "Around the alert ±24 hours",
+        "Last 24 hours",
+        "Last 7 days",
+      ],
     });
   }
 
-  return { status: "clarification_needed", scope, questions: questions.slice(0, 3) };
+  return {
+    status: "clarification_needed",
+    scope,
+    questions: questions.slice(0, 3),
+  };
 }
