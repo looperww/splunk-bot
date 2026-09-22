@@ -83,6 +83,8 @@ Questions should be progressive rather than a fixed questionnaire. Do not ask fo
 - Re-evaluate scope after every user answer.
 
 ### 3.3 Investigation controller
+- Implement the explicit defensive SOC agent contract in `docs/agent.md`.
+- Keep the model responsible for investigation reasoning while the application remains responsible for authorization, scope, budgets, and tool safety.
 - Assign an explicit search budget to each investigation.
 - Enforce maximum searches, runtime and result size.
 - Keep a scoped investigation context.
@@ -150,11 +152,12 @@ Questions should be progressive rather than a fixed questionnaire. Do not ask fo
 
 The exact thresholds should be configurable, but the initial design should target:
 - 1–3 clarification questions before a broad investigation.
-- Maximum 4–6 Splunk searches per investigation turn.
+- Maximum 6 Splunk searches per investigation invocation.
+- Maximum 4 tool rounds per investigation invocation.
 - Aggregation-first searches where practical.
 - Maximum 50 raw evidence events returned to the AI from a single drill-down.
 - Maximum 200 aggregate rows from a discovery query.
-- Explicit time range on every Splunk investigation search.
+- Explicit time range on every Splunk investigation search, supplied by the application from the approved scope.
 - Reuse cached results for repeated searches.
 
 ## Initial chatbot examples
