@@ -26,3 +26,15 @@ code,pre{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}.deta
 .search-list{display:grid;gap:10px}.search-card{border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--panel2)}.search-card-heading{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px;margin-bottom:8px}.search-card pre{margin:0;max-height:140px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:10px;line-height:1.45;color:#c2d2df}
 @media(max-width:1200px){.layout{grid-template-columns:240px minmax(0,1fr)}.rightbar{grid-column:1/-1;min-height:auto}.detail-grid,.scope-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:820px){.shell{padding:12px}.layout{grid-template-columns:1fr}.sidebar,.rightbar{min-height:auto}.detail-grid,.scope-grid{grid-template-columns:1fr}.topbar{align-items:flex-start;gap:12px}.top-actions{flex-wrap:wrap}}
+
+
+.budget-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  padding-top:12px;
+  margin-top:12px;
+  border-top:1px solid var(--border);
+  font-size:13px;
+}
