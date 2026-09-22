@@ -342,7 +342,7 @@ export async function investigate(
     throw new Error("A Splunk connection is required before starting an investigation.");
   }
   if(!ai.apiKey||ai.provider==="mock"){
-    return investigateLocally(eventContext,scope,connectionId);
+    return investigateLocally(eventContext,scope,connectionId,incidentContext);
   }
 
   const skills=selectSkills(scope,4);
