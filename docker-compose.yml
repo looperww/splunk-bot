@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: splunk_bot
       POSTGRES_USER: splunk_bot
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.docker}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
     volumes:
       - splunk-bot-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -27,12 +27,12 @@ services:
       PGPORT: "5432"
       PGDATABASE: splunk_bot
       PGUSER: splunk_bot
-      PGPASSWORD: ${POSTGRES_PASSWORD:?set in .env.docker}
-      SPLUNK_TOKEN_ENCRYPTION_KEY: ${SPLUNK_TOKEN_ENCRYPTION_KEY:?set in .env.docker}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      SPLUNK_TOKEN_ENCRYPTION_KEY: ${SPLUNK_TOKEN_ENCRYPTION_KEY:?set in .env}
       DEMO_MODE: ${DEMO_MODE:-false}
       AI_PROVIDER: ${AI_PROVIDER:-mock}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
       SPLUNK_ALLOWED_INDEXES: ${SPLUNK_ALLOWED_INDEXES:-}
     ports:
       - "3000:3000"
