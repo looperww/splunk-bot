@@ -430,6 +430,12 @@ export default function InvestigatorWorkspace(){
                   </span>
                 </div>
                 <pre>{search.query}</pre>
+                {search.evidencePreview&&search.evidencePreview.length>0&&
+                  <details className="evidence-details">
+                    <summary>Preview {search.evidencePreview.length} result rows</summary>
+                    <pre>{JSON.stringify(search.evidencePreview,null,2)}</pre>
+                  </details>
+                }
               </div>
             )}
           </div>
