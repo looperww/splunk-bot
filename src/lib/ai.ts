@@ -1,4 +1,5 @@
 import { getEnv } from "@/lib/env";
+import { investigateLocally } from "@/lib/local-investigator";
 import { searchSplunk } from "@/lib/splunk";
 import {
   mockClarificationPlan,
@@ -301,8 +302,11 @@ export async function investigate(
   connectionId?:string,
 ){
   const env=getEnv();
-  if(!env.openAiApiKey){
-    throw new Error("OPENAI_API_KEY is not configured.");
+  if(!env.openAiApiKey||env.aiProvider==="mock"){
+    if(!connectionId){
+      throw new Error("A Splunk connection is required before starting an investigation.");
+    }
+    return investigateLocally(eventContext,scope,connectionId);
   }
 
   const skills=selectSkills(scope,4);
