@@ -213,6 +213,16 @@ export default function InvestigatorWorkspace(){
     <SplunkConnectionPanel
       connectionId={selectedConnection?.id??null}
       onConnectionReady={handleConnectionReady}
+      onConnectionDeleted={()=>{
+        setSelectedConnection(null);
+        setEvents([]);
+        setSelectedEvent(null);
+        setQuestions([]);
+        setScope(null);
+        setSkills([]);
+        setSearches([]);
+        setBudget(null);
+      }}
     />
 
     {error&&<div className="error-box page-error">{error}</div>}
