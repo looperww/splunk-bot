@@ -122,15 +122,35 @@ export function mockClarificationPlan(
 ): InvestigationPlan {
   const lastUser = [...messages].reverse().find((message) => message.role === "user");
   const text = lastUser?.content ?? "";
-  const hasTime =
-    /last\s+(hour|2 hours|4 hours|day|24 hours|week|7 days)/i.test(text) ||
+  const aroundAlert = /around the alert\s*[±+/-]?\s*24\s*hours?/i.test(text);
+  const last24h = /last\s*24\s*hours?/i.test(text);
+  const last7d = /last\s*(7\s*days?|week)/i.test(text);
+  const relativeTime = /last\s+(hour|2 hours|4 hours|day|week)/i.test(text) ||
     /\b\d+\s*(m|h|d|days?|hours?)\b/i.test(text);
+  const hasTime = aroundAlert || last24h || last7d || relativeTime;
+
+  const alertTime = event?.created ? Date.parse(String(event.created)) : NaN;
+  let earliest = "";
+  let latest = "";
+  if (aroundAlert && Number.isFinite(alertTime)) {
+    earliest = new Date(alertTime - 24 * 60 * 60 * 1000).toISOString();
+    latest = new Date(alertTime + 24 * 60 * 60 * 1000).toISOString();
+  } else if (last24h) {
+    earliest = "-24h";
+    latest = "now";
+  } else if (last7d) {
+    earliest = "-7d";
+    latest = "now";
+  } else if (hasTime) {
+    earliest = "-24h";
+    latest = "now";
+  }
 
   const scope: InvestigationScope = {
     objective: text.slice(0, 500),
     target: event?.id ? "AME event " + event.id : "",
-    earliest: hasTime ? "-24h" : "",
-    latest: hasTime ? "now" : "",
+    earliest,
+    latest,
     dataSources: "",
     focus: "",
   };
