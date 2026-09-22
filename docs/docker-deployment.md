@@ -108,7 +108,7 @@ docker compose down -v
 
 ## Security requirements
 
-- Keep `.env.docker` out of Git.
+- Keep `.env` out of Git.
 - Keep `SPLUNK_TOKEN_ENCRYPTION_KEY` outside PostgreSQL.
 - Use a dedicated read-only Splunk credential for the investigator.
 - Restrict `SPLUNK_ALLOWED_INDEXES` when appropriate.
