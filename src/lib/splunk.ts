@@ -1,5 +1,6 @@
 import { getDefaultConnection, getConnectionCredentials } from "@/lib/connections";
 import type { AmeEvent, SplunkAlert } from "@/lib/types";
+import { normalizeTimestamp } from "@/lib/time";
 
 const MAX_RESULTS=200;
 const REQUEST_TIMEOUT_MS=30000;
@@ -104,13 +105,9 @@ function normalizeEvent(item:unknown,index:number):AmeEvent{
           :content.priority
             ?String(content.priority)
             :undefined,
-    created:content.first_seen
-      ?String(content.first_seen)
-      :content.created
-        ?String(content.created)
-        :content.created_at
-          ?String(content.created_at)
-          :undefined,
+    created:normalizeTimestamp(
+      content.first_seen??content.created??content.created_at,
+    ),
     owner:content.assignee_name
       ?String(content.assignee_name)
       :content.assignee
@@ -177,6 +174,7 @@ export async function getSplunkAlerts(
       alertType:content.alert_type?String(content.alert_type):undefined,
       cronSchedule:content.cron_schedule?String(content.cron_schedule):undefined,
       description:content.description?String(content.description):undefined,
+      raw:entry,
     };
   });
 }

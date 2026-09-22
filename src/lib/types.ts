@@ -24,6 +24,7 @@ export type SplunkAlert = {
   alertType?:string;
   cronSchedule?:string;
   description?:string;
+  raw?:Record<string,unknown>;
 };
 
 export type SearchAudit = {

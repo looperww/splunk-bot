@@ -186,6 +186,43 @@ async function createSchema():Promise<void>{
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS ame_event_cache (
+        connection_id TEXT NOT NULL REFERENCES splunk_connections(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT,
+        urgency TEXT,
+        created_value TEXT,
+        owner_name TEXT,
+        raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+        source_order INTEGER NOT NULL DEFAULT 0,
+        cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY(connection_id, event_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS ame_event_cache_connection_idx
+        ON ame_event_cache(connection_id, source_order);
+
+      CREATE TABLE IF NOT EXISTS splunk_alert_cache (
+        connection_id TEXT NOT NULL REFERENCES splunk_connections(id) ON DELETE CASCADE,
+        alert_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        app TEXT,
+        owner_name TEXT,
+        disabled BOOLEAN NOT NULL DEFAULT FALSE,
+        scheduled BOOLEAN NOT NULL DEFAULT FALSE,
+        alert_type TEXT,
+        cron_schedule TEXT,
+        description TEXT,
+        raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
+        source_order INTEGER NOT NULL DEFAULT 0,
+        cached_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY(connection_id, alert_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS splunk_alert_cache_connection_idx
+        ON splunk_alert_cache(connection_id, source_order);
+
       INSERT INTO investigation_agents(
         id,name,description,instructions,is_default
       ) VALUES(

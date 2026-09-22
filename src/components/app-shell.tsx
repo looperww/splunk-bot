@@ -17,8 +17,8 @@ const AppStateContext=createContext<AppState|null>(null);
 
 const navigation=[
   {href:"/dashboard",label:"Dashboard",mark:"D"},
-  {href:"/alerts",label:"Alerts",mark:"A"},
   {href:"/events",label:"Events",mark:"E"},
+  {href:"/alerts",label:"Alerts",mark:"A"},
   {href:"/skills",label:"Skills",mark:"S"},
   {href:"/agents",label:"Agents",mark:"G"},
   {href:"/settings",label:"Settings",mark:"⚙"},

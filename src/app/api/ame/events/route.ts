@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { getAmeEvents } from "@/lib/splunk";
+import {
+  getCachedAmeEvents,
+  replaceCachedAmeEvents,
+} from "@/lib/ame-event-cache";
 
 const demoEvents=[
   {
@@ -36,7 +40,7 @@ export async function GET(request:NextRequest){
   try{
     const env=getEnv();
     if(env.demoMode){
-      return NextResponse.json({events:demoEvents,demo:true});
+      return NextResponse.json({events:demoEvents,demo:true,cached:false,cachedAt:null});
     }
 
     const connectionId=request.nextUrl.searchParams.get("connectionId")??undefined;
@@ -50,10 +54,26 @@ export async function GET(request:NextRequest){
       );
     }
 
+    const refresh=request.nextUrl.searchParams.get("refresh")==="true";
+    if(!refresh){
+      const cached=await getCachedAmeEvents(connectionId);
+      if(cached.events.length){
+        return NextResponse.json({
+          events:cached.events,
+          demo:false,
+          cached:true,
+          cachedAt:cached.cachedAt,
+        });
+      }
+    }
+
     const result=await getAmeEvents(connectionId);
+    const saved=await replaceCachedAmeEvents(connectionId,result.events);
     return NextResponse.json({
-      events:result.events,
+      events:saved.events,
       demo:false,
+      cached:false,
+      cachedAt:saved.cachedAt,
     });
   }catch(error){
     return NextResponse.json(
