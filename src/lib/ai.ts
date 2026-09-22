@@ -298,6 +298,7 @@ export async function investigate(
   messages:ChatMessage[],
   eventContext:Record<string,unknown>|undefined,
   scope:InvestigationScope,
+  connectionId?:string,
 ){
   const env=getEnv();
   if(!env.openAiApiKey){
@@ -380,6 +381,7 @@ export async function investigate(
             aggregate
               ?AGENT_CONFIG.maxAggregateRows
               :AGENT_CONFIG.maxRawEvidenceEvents,
+            connectionId,
           );
           cache.set(key,result);
         }else{
