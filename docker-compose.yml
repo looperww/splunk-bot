@@ -1,17 +1,46 @@
 services:
+  splunk-bot-db:
+    image: postgres:16-alpine
+    container_name: splunk-bot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: splunk_bot
+      POSTGRES_USER: splunk_bot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.docker}
+    volumes:
+      - splunk-bot-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U splunk_bot -d splunk_bot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   splunk-bot:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: splunk-bot
     restart: unless-stopped
-    env_file:
-      - .env.docker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://splunk_bot:${POSTGRES_PASSWORD}@splunk-bot-db:5432/splunk_bot
+      SPLUNK_TOKEN_ENCRYPTION_KEY: ${SPLUNK_TOKEN_ENCRYPTION_KEY:?set in .env.docker}
+      DEMO_MODE: ${DEMO_MODE:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-mock}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      SPLUNK_ALLOWED_INDEXES: ${SPLUNK_ALLOWED_INDEXES:-}
     ports:
       - "3000:3000"
+    depends_on:
+      splunk-bot-db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  splunk-bot-postgres:
