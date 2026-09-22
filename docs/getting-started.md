@@ -13,8 +13,8 @@ The default deployment uses one Docker Compose file containing:
 
 Create the runtime file:
 
-    cp .env.docker.example .env.docker
-    chmod 600 .env.docker
+    cp .env.example .env
+    chmod 600 .env
 
 Set:
 
@@ -103,7 +103,7 @@ Then:
 
 ## Security notes
 
-Do not commit .env.local, .env.docker, Splunk tokens, database passwords, or encryption keys.
+Do not commit .env, .env.local, Splunk tokens, database passwords, or encryption keys.
 
 Use a dedicated read-only Splunk token.
 
