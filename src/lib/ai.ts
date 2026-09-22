@@ -221,9 +221,11 @@ export async function planInvestigation(
         ?{
             id:String(eventContext.id??eventContext.event_id??""),
             title:String(eventContext.title??""),
-            created:eventContext.created??eventContext.created_at
-              ?String(eventContext.created??eventContext.created_at)
-              :undefined,
+            created:eventContext.created
+              ?String(eventContext.created)
+              :eventContext.created_at
+                ?String(eventContext.created_at)
+                :undefined,
             status:eventContext.status?String(eventContext.status):undefined,
             urgency:eventContext.urgency?String(eventContext.urgency):undefined,
             owner:eventContext.owner?String(eventContext.owner):undefined,
