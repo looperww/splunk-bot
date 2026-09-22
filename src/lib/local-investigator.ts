@@ -13,6 +13,7 @@ export type LocalInvestigationResult={
     truncated:boolean;
     phase:"baseline"|"pivot"|"confirmation";
     cached:boolean;
+    evidencePreview?:Record<string,unknown>[];
   }>;
   skills:string[];
   budget:{
@@ -175,6 +176,7 @@ export async function investigateLocally(
       truncated:result.truncated,
       phase:"pivot",
       cached,
+      evidencePreview:result.results.slice(0,10),
     });
   }
 
