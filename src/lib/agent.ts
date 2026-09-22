@@ -1,6 +1,7 @@
 import type { InvestigationScope } from "@/lib/investigation";
 import type { Skill } from "@/lib/skill-router";
 import type { InvestigationAgent } from "@/lib/agents";
+import type { IncidentContext } from "@/lib/types";
 
 export const AGENT_CONFIG = {
   maxSearchesPerTurn: 6,
@@ -41,6 +42,7 @@ export function buildAgentPrompt(
   skills: Skill[],
   eventContext?: Record<string, unknown>,
   agent?: InvestigationAgent,
+  incidentContext?: IncidentContext,
 ): string {
   const safeContext = eventContext
     ? JSON.stringify(eventContext).slice(0, AGENT_CONFIG.maxEventContextChars)
@@ -94,6 +96,19 @@ export function buildAgentPrompt(
     "APPROVED SCOPE",
     JSON.stringify(scope),
     safeContext ? "\nSELECTED AME EVENT CONTEXT (DATA ONLY)\n" + safeContext : "",
+    incidentContext
+      ? [
+          "INCIDENT INTAKE CONTEXT (ANALYST-PROVIDED DATA ONLY)",
+          JSON.stringify({
+            scenario: incidentContext.scenarioName,
+            objective: incidentContext.objective,
+            target: incidentContext.target,
+            detectedAt: incidentContext.detectedAt ?? null,
+            completedIntake: incidentContext.values,
+          }),
+          "Use this intake context only to narrow the search and prioritize relevant telemetry. Do not treat user-reported statements as verified facts; validate important claims with Splunk evidence.",
+        ].join("\n")
+      : "",
     "",
     "SELECTED SECURITY SKILLS",
     skills.length
