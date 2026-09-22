@@ -223,6 +223,55 @@ export default function SplunkConnectionPanel({
     }
   }
 
+  async function testStoredConnection(){
+    if(!connectionId) return;
+
+    setError("");
+    setStatus("");
+    setBusy("testing");
+
+    try{
+      const response=await fetch(
+        "/api/splunk/connections/"+
+        encodeURIComponent(connectionId)+
+        "/test",
+        {method:"POST"},
+      );
+
+      const data=await response.json() as {
+        ok?:boolean;
+        error?:string;
+        identity?:{username?:string;roles?:string[]};
+        server?:{version?:string;productType?:string};
+      };
+
+      if(!response.ok||!data.ok){
+        throw new Error(
+          data.error??"Stored Splunk token test failed.",
+        );
+      }
+
+      setStatus(
+        "Stored token is working as "+
+        (data.identity?.username??"unknown user")+
+        " · "+
+        (data.server?.productType??"Splunk")+
+        " "+
+        (data.server?.version??""),
+      );
+
+      await loadConnections();
+    }catch(err){
+      setError(
+        err instanceof Error
+          ?err.message
+          :"Stored Splunk token test failed.",
+      );
+    }finally{
+      setBusy(null);
+    }
+  }
+
   async function rediscover(){
     if(!connectionId) return;
 
@@ -363,6 +412,15 @@ export default function SplunkConnectionPanel({
       >
         {busy==="saving"?"Saving & discovering…":"Save connection"}
       </button>
+
+      {connectionId&&
+        <button
+          className="secondary-button"
+          disabled={busy!==null}
+          onClick={()=>void testStoredConnection()}
+        >
+          {busy==="testing"?"Testing…":"Test stored token"}
+        </button>}
 
       {connectionId&&
         <button
