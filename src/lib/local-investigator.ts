@@ -140,6 +140,7 @@ export async function investigateLocally(
       truncated:result.truncated,
       phase:"baseline",
       cached,
+      evidencePreview:result.results.slice(0,10),
     });
   }
 
