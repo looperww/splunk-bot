@@ -47,12 +47,13 @@ export async function POST(request:NextRequest){
       timezone:tested.identity.timezone,
     });
 
-    await discoverSplunkConnection(saved.id);
+    const discovery=await discoverSplunkConnection(saved.id);
 
     return NextResponse.json({
       connectionId:saved.id,
       connection:await listConnections().then((items)=>items.find((item)=>item.id===saved.id)??saved),
       discovery:"completed",
+      discoverySummary:discovery.summary,
       aiEnabled:Boolean(getEnv().openAiApiKey),
     });
   }catch(error){
