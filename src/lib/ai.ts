@@ -1,7 +1,6 @@
 import { getEnv } from "@/lib/env";
 import { searchSplunk } from "@/lib/splunk";
 import {
-  buildScopePrompt,
   mockClarificationPlan,
   normalizePlan,
   type InvestigationPlan,
@@ -323,6 +322,8 @@ export async function investigate(
     query:string;
     resultCount:number;
     truncated:boolean;
+    phase:"baseline"|"pivot"|"confirmation";
+    cached:boolean;
   }>=[];
   const cache=new Map<string,Awaited<ReturnType<typeof searchSplunk>>>();
 
@@ -390,6 +391,8 @@ export async function investigate(
           query:result.query,
           resultCount:result.results.length,
           truncated:result.truncated,
+          phase:args.phase,
+          cached,
         });
 
         outputs.push({
