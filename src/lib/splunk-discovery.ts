@@ -57,12 +57,22 @@ async function splunkRest<T=unknown>(
   const url=new URL(endpoint,baseUrl);
   for(const [key,value] of Object.entries(params)) url.searchParams.set(key,String(value));
 
+  const body=new URLSearchParams({
+    search,
+    earliest_time:"-30d",
+    latest_time:"now",
+    output_mode:"json",
+    preview:"false",
+  });
+
   const response=await fetch(url,{
-    method:"GET",
+    method:"POST",
     headers:{
       Authorization:"Bearer "+token,
       Accept:"application/json",
+      "Content-Type":"application/x-www-form-urlencoded",
     },
+    body,
     cache:"no-store",
     signal:AbortSignal.timeout(30000),
   });
@@ -391,11 +401,6 @@ async function splunkSearchForMetadata(
 ){
   const url=new URL("/services/search/v2/jobs/export",baseUrl);
   const search="| metadata type=sourcetypes index=\""+index.replace(/"/g,'\\\\\\"')+"\"";
-  url.searchParams.set("search",search);
-  url.searchParams.set("earliest_time","-30d");
-  url.searchParams.set("latest_time","now");
-  url.searchParams.set("output_mode","json");
-  url.searchParams.set("preview","false");
 
   const response=await fetch(url,{
     method:"GET",
