@@ -71,3 +71,7 @@ code,pre{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}.deta
 .knowledge-item code{font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .knowledge-item small{font-size:9px;color:var(--muted);white-space:nowrap}
 @media(max-width:700px){.knowledge-columns{grid-template-columns:1fr}}
+
+.evidence-details{margin-top:9px;border-top:1px solid var(--border);padding-top:8px}
+.evidence-details summary{cursor:pointer;color:var(--muted);font-size:10px}
+.evidence-details pre{margin-top:8px;max-height:260px}
