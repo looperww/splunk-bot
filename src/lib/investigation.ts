@@ -139,7 +139,6 @@ export function mockClarificationPlan(
       ? eventTime
       : NaN;
 
-  const hasExplicitUserTime = aroundAlert || last24h || last7d || relativeTime;
   const hasIncidentTime = Boolean(incident?.detectedAt);
 
   let earliest = "";
