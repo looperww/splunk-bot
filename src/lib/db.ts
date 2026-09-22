@@ -5,10 +5,24 @@ let schemaReady:Promise<void>|undefined;
 
 function getPool():Pool{
   if(pool) return pool;
+
   const connectionString=process.env.DATABASE_URL;
-  if(!connectionString) throw new Error("DATABASE_URL is not configured.");
+  const baseConfig=connectionString
+    ?{connectionString}
+    :{
+        host:process.env.PGHOST,
+        port:process.env.PGPORT?Number(process.env.PGPORT):5432,
+        database:process.env.PGDATABASE??"splunk_bot",
+        user:process.env.PGUSER??"splunk_bot",
+        password:process.env.PGPASSWORD,
+      };
+
+  if(!connectionString&&!baseConfig.host){
+    throw new Error("PostgreSQL connection is not configured.");
+  }
+
   pool=new Pool({
-    connectionString,
+    ...baseConfig,
     max:10,
     idleTimeoutMillis:30000,
     connectionTimeoutMillis:10000,
