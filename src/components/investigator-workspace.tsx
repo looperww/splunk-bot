@@ -1,15 +1,16 @@
 "use client";
 
 import { useEffect,useState } from "react";
-import type { AmeEvent,ChatMessage,InvestigationQuestion,InvestigationScope,SearchAudit } from "@/lib/types";
+import type { AgentBudget, AmeEvent,ChatMessage,InvestigationQuestion,InvestigationScope,SearchAudit } from "@/lib/types";
 
 type ChatResponse = {
-  status?: "clarification_needed"|"investigating"|"ready";
+  status?: "clarification_needed"|"investigating"|"completed"|"ready";
   message?:ChatMessage;
   questions?:InvestigationQuestion[];
   scope?:InvestigationScope;
   searches?:SearchAudit[];
   skills?:string[];
+  budget?:AgentBudget;
   error?:string;
 };
 
@@ -24,6 +25,7 @@ export default function InvestigatorWorkspace(){
   const [skills,setSkills]=useState<string[]>([]);
   const [draft,setDraft]=useState("");
   const [searches,setSearches]=useState<SearchAudit[]>([]);
+  const [budget,setBudget]=useState<AgentBudget|null>(null);
   const [loading,setLoading]=useState(true);
   const [sending,setSending]=useState(false);
   const [error,setError]=useState("");
@@ -65,6 +67,7 @@ export default function InvestigatorWorkspace(){
       setQuestions(data.questions??[]);
       setScope(data.scope??null);
       setSkills(data.skills??[]);
+      setBudget(data.budget??null);
       if(data.searches?.length) setSearches(current=>[...current,...data.searches!]);
     }catch(err){
       setMessages(current=>[...current,{id:crypto.randomUUID(),role:"assistant",content:"Investigation error: "+(err instanceof Error?err.message:"Unknown error.")}]);
@@ -73,7 +76,7 @@ export default function InvestigatorWorkspace(){
 
   function startNewInvestigation(){
     setMessages([{id:crypto.randomUUID(),role:"assistant",content:"New investigation started. Tell me what you want to investigate and I will first narrow the scope."}]);
-    setQuestions([]);setScope(null);setSkills([]);setSearches([]);setDraft("");
+    setQuestions([]);setScope(null);setSkills([]);setSearches([]);setBudget(null);setDraft("");
   }
 
   return <main className="shell">
@@ -112,6 +115,7 @@ export default function InvestigatorWorkspace(){
             <div><span className="label">Focus</span><span>{scope.focus||"—"}</span></div>
           </div>:<div className="empty">Scope will be established through clarification questions.</div>}
           {skills.length>0&&<div className="skills-strip"><span className="label">Methods</span>{skills.map(skill=><span className="skill-chip" key={skill}>{skill}</span>)}</div>}
+          {budget&&<div className="budget-row"><span className="label">Agent budget</span><span>{budget.searchesUsed}/{budget.searchLimit} searches · {budget.toolRounds}/{budget.toolRoundLimit} tool rounds</span></div>}
         </div>
 
         <div className="panel chat-panel">
