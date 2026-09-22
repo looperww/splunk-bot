@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "source": "https://github.com/mukul975/Anthropic-Cybersecurity-Skills",
+  "source_commit": "54a798831d2266a3ca61ce68a7acb80b81160d57",
+  "license": "Apache-2.0",
+  "selection_mode": "local_router",
+  "skills": [
+    {
+      "name": "triaging-security-incident",
+      "path": "incident/triaging-security-incident.md",
+      "use_when": [
+        "initial incident triage",
+        "SIEM/EDR alert classification",
+        "incident context collection"
+      ]
+    },
+    {
+      "name": "triaging-security-incident-with-ir-playbook",
+      "path": "incident/triaging-security-incident-with-ir-playbook.md",
+      "use_when": [
+        "structured incident triage",
+        "IR playbook selection",
+        "Splunk-based alert enrichment"
+      ]
+    },
+    {
+      "name": "analyzing-windows-event-logs-in-splunk",
+      "path": "splunk/analyzing-windows-event-logs-in-splunk.md",
+      "use_when": [
+        "Windows logs",
+        "Sysmon",
+        "authentication",
+        "lateral movement",
+        "Windows timeline"
+      ]
+    },
+    {
+      "name": "analyzing-network-traffic-for-incidents",
+      "path": "network/analyzing-network-traffic-for-incidents.md",
+      "use_when": [
+        "network traffic",
+        "C2",
+        "lateral movement",
+        "exfiltration",
+        "Zeek/NetFlow/PCAP context"
+      ]
+    },
+    {
+      "name": "analyzing-office365-audit-logs-for-compromise",
+      "path": "cloud/analyzing-office365-audit-logs-for-compromise.md",
+      "use_when": [
+        "Microsoft 365 compromise",
+        "mailbox rules",
+        "OAuth grants",
+        "BEC"
+      ]
+    },
+    {
+      "name": "detecting-business-email-compromise",
+      "path": "cloud/detecting-business-email-compromise.md",
+      "use_when": [
+        "BEC",
+        "phishing",
+        "mailbox compromise"
+      ]
+    },
+    {
+      "name": "analyzing-web-server-logs-for-intrusion",
+      "path": "web/analyzing-web-server-logs-for-intrusion.md",
+      "use_when": [
+        "web attack",
+        "web server logs",
+        "SQLi/XSS/SSRF indicators"
+      ]
+    },
+    {
+      "name": "analyzing-network-flow-data-with-netflow",
+      "path": "network/analyzing-network-flow-data-with-netflow.md",
+      "use_when": [
+        "NetFlow",
+        "network flow investigation"
+      ]
+    },
+    {
+      "name": "building-detection-rule-with-splunk-spl",
+      "path": "splunk/building-detection-rule-with-splunk-spl.md",
+      "use_when": [
+        "detection engineering",
+        "new Splunk detection"
+      ]
+    },
+    {
+      "name": "performing-memory-forensics-with-volatility3",
+      "path": "forensics/performing-memory-forensics-with-volatility3.md",
+      "use_when": [
+        "memory dump",
+        "Volatility3",
+        "endpoint memory forensics"
+      ]
+    },
+    {
+      "name": "conducting-malware-incident-response",
+      "path": "malware/conducting-malware-incident-response.md",
+      "use_when": [
+        "malware incident",
+        "malware triage",
+        "malware response"
+      ]
+    }
+  ]
+}
