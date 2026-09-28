@@ -4,8 +4,11 @@ import {
   listIncidentScenarios,
 } from "@/lib/incidents";
 import type { IncidentField } from "@/lib/incident-scenarios";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function GET(request: NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const includeDisabled =
       request.nextUrl.searchParams.get("includeDisabled")==="true";
@@ -21,6 +24,8 @@ export async function GET(request: NextRequest){
 }
 
 export async function POST(request: NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const body=await request.json() as {
       name?:string;

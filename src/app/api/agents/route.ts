@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAgent, listAgents, updateAgent } from "@/lib/agents";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function GET(){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{return NextResponse.json({agents:await listAgents()});}
   catch(error){
     return NextResponse.json(
@@ -12,16 +15,24 @@ export async function GET(){
 }
 
 export async function POST(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const body=await request.json() as {
       name?:string;
       description?:string;
       instructions?:string;
+      identity?:string;
+      method?:string;
+      guardrails?:string;
     };
     const agent=await createAgent({
       name:String(body.name??""),
       description:String(body.description??""),
       instructions:String(body.instructions??""),
+      identity:body.identity===undefined?undefined:String(body.identity),
+      method:body.method===undefined?undefined:String(body.method),
+      guardrails:body.guardrails===undefined?undefined:String(body.guardrails),
     });
     return NextResponse.json({agent},{status:201});
   }catch(error){
@@ -33,6 +44,8 @@ export async function POST(request:NextRequest){
 }
 
 export async function PATCH(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const url=new URL(request.url);
     const id=url.searchParams.get("id")??"";
@@ -41,11 +54,17 @@ export async function PATCH(request:NextRequest){
       name?:string;
       description?:string;
       instructions?:string;
+      identity?:string;
+      method?:string;
+      guardrails?:string;
     };
     const agent=await updateAgent(id,{
       name:String(body.name??""),
       description:String(body.description??""),
       instructions:String(body.instructions??""),
+      identity:body.identity===undefined?undefined:String(body.identity),
+      method:body.method===undefined?undefined:String(body.method),
+      guardrails:body.guardrails===undefined?undefined:String(body.guardrails),
     });
     return NextResponse.json({agent});
   }catch(error){

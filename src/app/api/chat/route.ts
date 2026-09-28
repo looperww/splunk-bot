@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { investigate, planInvestigation } from "@/lib/ai";
 import { getAiRuntimeSettings } from "@/lib/ai-settings";
 import { getAgent } from "@/lib/agents";
+import { requireApiAuth } from "@/lib/auth";
 import type { AgentBudget, ChatMessage, IncidentContext } from "@/lib/types";
 
 export async function POST(request: NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const body=(await request.json()) as {
       messages?:ChatMessage[];

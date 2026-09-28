@@ -6,8 +6,12 @@ import {
 } from "@/lib/incidents";
 import type { IncidentField } from "@/lib/incident-scenarios";
 import type { IncidentContext } from "@/lib/types";
+import { requireApiAuth } from "@/lib/auth";
+import { createInvestigation } from "@/lib/investigations";
 
 export async function GET(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const connectionId=request.nextUrl.searchParams.get("connectionId")||undefined;
     const limit=Number(request.nextUrl.searchParams.get("limit")||"50");
@@ -23,6 +27,8 @@ export async function GET(request:NextRequest){
 }
 
 export async function POST(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const body=await request.json() as {
       scenarioId?:string;
@@ -67,8 +73,23 @@ export async function POST(request:NextRequest){
       title:body.title?String(body.title):undefined,
     });
 
+    const investigation=await createInvestigation({
+      kind:"incident",
+      title:incident.title,
+      description:scenario.description||scenario.objective,
+      incidentId:incident.id,
+      connectionId,
+      agentId:"default-soc-agent",
+      incidentContext:incident.context as IncidentContext,
+      messages:[{
+        id:`incident-${incident.id}-welcome`,
+        role:"assistant",
+        content:`Incident scenario "${scenario.name}" is ready. Continue the conversation to provide any missing facts and begin the scoped investigation.`,
+      }],
+    });
+
     return NextResponse.json(
-      {incident,incidentContext:incident.context as IncidentContext},
+      {incident,incidentContext:incident.context as IncidentContext,investigation},
       {status:201},
     );
   }catch(error){

@@ -81,6 +81,8 @@ Splunk and AI credentials remain server-side.
 
 See `docs/getting-started.md`.
 
+The first visit opens an account setup screen. Login credentials are stored as a scrypt password hash in PostgreSQL; they are not read from or written to `.env`.
+
 For UI-only development:
 
     AI_PROVIDER=mock
@@ -123,6 +125,7 @@ When a key is available:
 
 ## Current security controls
 
+- Application pages and APIs require a server-side session created through the login form; session cookies are HttpOnly and session tokens are stored only as hashes.
 - Splunk access is read-only.
 - Clarification gate blocks investigation searches until the scope is sufficiently specific.
 - Search count is bounded for each investigation.

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCachedSplunkAlert } from "@/lib/splunk-alert-cache";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function GET(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const connectionId=request.nextUrl.searchParams.get("connectionId")??"";
     const alertId=request.nextUrl.searchParams.get("alertId")??"";

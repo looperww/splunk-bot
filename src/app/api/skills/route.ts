@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { createSkill, listSkills, updateSkill } from "@/lib/skills";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function GET(){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{return NextResponse.json({skills:await listSkills()});}
   catch(error){
     return NextResponse.json(
@@ -27,6 +30,8 @@ async function skillInput(request:Request){
 }
 
 export async function POST(request:Request){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     return NextResponse.json({skill:await createSkill(await skillInput(request))},{status:201});
   }catch(error){
@@ -38,6 +43,8 @@ export async function POST(request:Request){
 }
 
 export async function PATCH(request:Request){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const url=new URL(request.url);
     const id=url.searchParams.get("id")??"";

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getConnection } from "@/lib/connections";
 import { testStoredConnection } from "@/lib/splunk-discovery";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function POST(
   _request:NextRequest,
   context:{params:Promise<{id:string}>},
 ){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const {id}=await context.params;
     const connection=await getConnection(id);

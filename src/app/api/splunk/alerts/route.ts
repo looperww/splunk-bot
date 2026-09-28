@@ -4,8 +4,11 @@ import {
   getCachedSplunkAlerts,
   replaceCachedSplunkAlerts,
 } from "@/lib/splunk-alert-cache";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function GET(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const connectionId=request.nextUrl.searchParams.get("connectionId")??undefined;
     if(!connectionId){
