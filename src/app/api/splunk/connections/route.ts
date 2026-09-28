@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEnv } from "@/lib/env";
 import { listConnections, saveConnection } from "@/lib/connections";
 import { discoverSplunkConnection, testSplunkConnection } from "@/lib/splunk-discovery";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function GET(){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const connections=await listConnections();
     return NextResponse.json({connections});
@@ -16,6 +19,8 @@ export async function GET(){
 }
 
 export async function POST(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const body=(await request.json()) as {
       name?:string;

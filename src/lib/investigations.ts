@@ -1,0 +1,169 @@
+import { randomUUID } from "node:crypto";
+import { ensureSchema, query } from "@/lib/db";
+import type {
+  AgentBudget,
+  ChatMessage,
+  IncidentContext,
+  InvestigationKind,
+  InvestigationRecord,
+  InvestigationScope,
+  InvestigationStatus,
+  SearchAudit,
+} from "@/lib/types";
+
+type Row=Record<string,unknown>;
+
+function recordValue(value:unknown):Record<string,unknown>|null{
+  return value&&typeof value==="object"&&!Array.isArray(value)
+    ?value as Record<string,unknown>
+    :null;
+}
+
+function mapMessages(value:unknown):ChatMessage[]{
+  if(!Array.isArray(value)) return [];
+  return value
+    .filter((item):item is Record<string,unknown>=>Boolean(item)&&typeof item==="object")
+    .map((item)=>({
+      id:item.id==null?undefined:String(item.id),
+      role:item.role==="user"?"user":"assistant",
+      content:String(item.content??""),
+    }));
+}
+
+function mapInvestigation(row:Row):InvestigationRecord{
+  const eventContext=recordValue(row.event_context);
+  const incidentContext=recordValue(row.incident_context) as IncidentContext|null;
+  const scope=recordValue(row.scope) as InvestigationScope|null;
+  const budget=recordValue(row.budget) as AgentBudget|null;
+  const searches=Array.isArray(row.searches)?row.searches as SearchAudit[]:[];
+  const skills=Array.isArray(row.skills)?row.skills.map(String):[];
+  const kind=row.kind==="incident"?"incident":"alert";
+  const status=row.status==="closed"?"closed":"ongoing";
+
+  return {
+    id:String(row.id),
+    kind,
+    title:String(row.title),
+    description:String(row.description??""),
+    status,
+    sourceEventId:row.source_event_id==null?null:String(row.source_event_id),
+    incidentId:row.incident_id==null?null:String(row.incident_id),
+    connectionId:row.connection_id==null?null:String(row.connection_id),
+    agentId:row.agent_id==null?null:String(row.agent_id),
+    eventContext,
+    incidentContext,
+    messages:mapMessages(row.messages),
+    report:String(row.report??""),
+    scope,
+    searches,
+    skills,
+    budget,
+    createdAt:new Date(String(row.created_at)).toISOString(),
+    updatedAt:new Date(String(row.updated_at)).toISOString(),
+  };
+}
+
+export async function listInvestigations(options:{status?:InvestigationStatus;limit?:number}={}):Promise<InvestigationRecord[]>{
+  await ensureSchema();
+  const limit=Math.min(Math.max(Number(options.limit??100)||100,1),250);
+  const rows=await query<Row>(
+    `SELECT * FROM investigations
+      WHERE ($1::text IS NULL OR status=$1)
+      ORDER BY updated_at DESC
+      LIMIT $2`,
+    [options.status??null,limit],
+  );
+  return rows.map(mapInvestigation);
+}
+
+export async function getInvestigation(id:string):Promise<InvestigationRecord|null>{
+  await ensureSchema();
+  const rows=await query<Row>(
+    "SELECT * FROM investigations WHERE id=$1 LIMIT 1",
+    [id],
+  );
+  return rows[0]?mapInvestigation(rows[0]):null;
+}
+
+export async function createInvestigation(input:{
+  kind:InvestigationKind;
+  title:string;
+  description?:string;
+  status?:InvestigationStatus;
+  sourceEventId?:string;
+  incidentId?:string;
+  connectionId?:string;
+  agentId?:string;
+  eventContext?:Record<string,unknown>;
+  incidentContext?:IncidentContext;
+  messages?:ChatMessage[];
+}):Promise<InvestigationRecord>{
+  await ensureSchema();
+  const title=input.title.trim();
+  if(!title) throw new Error("Investigation title is required.");
+  if(title.length>240) throw new Error("Investigation title is too long.");
+  if(input.kind!=="alert"&&input.kind!=="incident") throw new Error("Investigation type is invalid.");
+
+  const id=randomUUID();
+  await query(
+    `INSERT INTO investigations(
+       id,kind,title,description,status,source_event_id,incident_id,
+       connection_id,agent_id,event_context,incident_context,messages
+     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb)`,
+    [
+      id,
+      input.kind,
+      title,
+      input.description?.trim()??"",
+      input.status??"ongoing",
+      input.sourceEventId??null,
+      input.incidentId??null,
+      input.connectionId??null,
+      input.agentId??null,
+      JSON.stringify(input.eventContext??null),
+      JSON.stringify(input.incidentContext??null),
+      JSON.stringify(input.messages??[]),
+    ],
+  );
+  const created=await getInvestigation(id);
+  if(!created) throw new Error("Failed to load the created investigation.");
+  return created;
+}
+
+export async function updateInvestigation(id:string,input:{
+  status?:InvestigationStatus;
+  messages?:ChatMessage[];
+  report?:string;
+  scope?:InvestigationScope|null;
+  searches?:SearchAudit[];
+  skills?:string[];
+  budget?:AgentBudget|null;
+}):Promise<InvestigationRecord>{
+  await ensureSchema();
+  if(input.status&&input.status!=="ongoing"&&input.status!=="closed") throw new Error("Investigation status is invalid.");
+  const rows=await query<Row>(
+    `UPDATE investigations
+        SET status=COALESCE($2,status),
+            messages=COALESCE($3::jsonb,messages),
+            report=COALESCE($4,report),
+            scope=COALESCE($5::jsonb,scope),
+            searches=COALESCE($6::jsonb,searches),
+            skills=COALESCE($7::jsonb,skills),
+            budget=COALESCE($8::jsonb,budget),
+            updated_at=NOW()
+      WHERE id=$1
+      RETURNING *`,
+    [
+      id,
+      input.status??null,
+      input.messages===undefined?null:JSON.stringify(input.messages),
+      input.report===undefined?null:input.report,
+      input.scope===undefined?null:JSON.stringify(input.scope),
+      input.searches===undefined?null:JSON.stringify(input.searches),
+      input.skills===undefined?null:JSON.stringify(input.skills),
+      input.budget===undefined?null:JSON.stringify(input.budget),
+    ],
+  );
+  if(!rows[0]) throw new Error("Investigation not found.");
+  return mapInvestigation(rows[0]);
+}

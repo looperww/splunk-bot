@@ -72,3 +72,28 @@ export type IncidentContext = {
   values: Record<string, string>;
   submittedAt: string;
 };
+
+export type InvestigationKind="alert"|"incident";
+export type InvestigationStatus="ongoing"|"closed";
+
+export type InvestigationRecord={
+  id:string;
+  kind:InvestigationKind;
+  title:string;
+  description:string;
+  status:InvestigationStatus;
+  sourceEventId:string|null;
+  incidentId:string|null;
+  connectionId:string|null;
+  agentId:string|null;
+  eventContext:Record<string,unknown>|null;
+  incidentContext:IncidentContext|null;
+  messages:ChatMessage[];
+  report:string;
+  scope:InvestigationScope|null;
+  searches:SearchAudit[];
+  skills:string[];
+  budget:AgentBudget|null;
+  createdAt:string;
+  updatedAt:string;
+};

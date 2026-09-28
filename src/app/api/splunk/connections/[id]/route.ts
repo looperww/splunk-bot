@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deleteConnection, getConnection } from "@/lib/connections";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function DELETE(
   _request:NextRequest,
   context:{params:Promise<{id:string}>},
 ){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const {id}=await context.params;
     const connection=await getConnection(id);

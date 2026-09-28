@@ -5,6 +5,7 @@ import {
   getCachedAmeEvents,
   replaceCachedAmeEvents,
 } from "@/lib/ame-event-cache";
+import { requireApiAuth } from "@/lib/auth";
 
 const demoEvents=[
   {
@@ -37,6 +38,8 @@ const demoEvents=[
 ];
 
 export async function GET(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const env=getEnv();
     if(env.demoMode){

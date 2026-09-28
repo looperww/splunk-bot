@@ -1,5 +1,11 @@
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { INCIDENT_SCENARIOS } from "@/lib/incident-scenarios";
+import {
+  DEFAULT_AGENT_DESCRIPTION,
+  DEFAULT_AGENT_INSTRUCTIONS,
+  DEFAULT_AGENT_NAME,
+  DEFAULT_AGENT_PLACEHOLDER,
+} from "@/lib/agent-defaults";
 
 let pool:Pool|undefined;
 let schemaReady:Promise<void>|undefined;
@@ -177,6 +183,63 @@ async function createSchema():Promise<void>{
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS app_users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS app_users_username_lower_idx
+        ON app_users(LOWER(username));
+
+      CREATE TABLE IF NOT EXISTS app_sessions (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMPTZ NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS app_sessions_expiry_idx
+        ON app_sessions(expires_at);
+
+      CREATE INDEX IF NOT EXISTS app_sessions_user_idx
+        ON app_sessions(user_id);
+
+      CREATE TABLE IF NOT EXISTS investigations (
+        id TEXT PRIMARY KEY,
+        kind TEXT NOT NULL CHECK (kind IN ('alert','incident')),
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'ongoing' CHECK (status IN ('ongoing','closed')),
+        source_event_id TEXT,
+        incident_id TEXT,
+        connection_id TEXT REFERENCES splunk_connections(id) ON DELETE SET NULL,
+        agent_id TEXT,
+        event_context JSONB,
+        incident_context JSONB,
+        messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+        report TEXT NOT NULL DEFAULT '',
+        scope JSONB,
+        searches JSONB NOT NULL DEFAULT '[]'::jsonb,
+        skills JSONB NOT NULL DEFAULT '[]'::jsonb,
+        budget JSONB,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS investigations_status_idx
+        ON investigations(status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS investigations_kind_idx
+        ON investigations(kind, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS investigations_connection_idx
+        ON investigations(connection_id, updated_at DESC);
+
       CREATE TABLE IF NOT EXISTS investigation_agents (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -284,13 +347,39 @@ async function createSchema():Promise<void>{
         id,name,description,instructions,is_default
       ) VALUES(
         'default-soc-agent',
-        'SOC Investigation Agent',
-        'Evidence-driven defensive investigation agent for Splunk and AME.',
-        'Use the governed baseline, pivot, confirmation, and reporting workflow.',
+        $agent_name$${DEFAULT_AGENT_NAME}$agent_name$,
+        $agent_description$${DEFAULT_AGENT_DESCRIPTION}$agent_description$,
+        $agent_instructions$${DEFAULT_AGENT_INSTRUCTIONS}$agent_instructions$,
         TRUE
-      ) ON CONFLICT(id) DO NOTHING;
+      ) ON CONFLICT(id) DO UPDATE SET
+        name=EXCLUDED.name,
+        description=EXCLUDED.description,
+        instructions=EXCLUDED.instructions
+      WHERE investigation_agents.instructions=$agent_placeholder$${DEFAULT_AGENT_PLACEHOLDER}$agent_placeholder$;
 
 
+    `);
+
+    await client.query(`
+      INSERT INTO investigations(
+        id,kind,title,description,status,incident_id,connection_id,
+        incident_context,created_at,updated_at
+      )
+      SELECT
+        'incident-'||i.id,
+        'incident',
+        i.title,
+        COALESCE(i.context->>'summary',i.scenario_name,''),
+        CASE WHEN LOWER(i.status) IN ('closed','resolved','complete','completed') THEN 'closed' ELSE 'ongoing' END,
+        i.id,
+        i.connection_id,
+        i.context,
+        i.created_at,
+        i.updated_at
+      FROM incidents i
+      WHERE NOT EXISTS(
+        SELECT 1 FROM investigations existing WHERE existing.incident_id=i.id
+      )
     `);
 
       for (const scenario of INCIDENT_SCENARIOS) {

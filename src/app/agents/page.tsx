@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { InvestigationAgent } from "@/lib/agents";
+import { AGENT_GUARDRAILS, AGENT_IDENTITY, AGENT_METHOD } from "@/lib/agent";
 
 type AgentForm={name:string;description:string;instructions:string};
 const emptyForm:AgentForm={name:"",description:"",instructions:""};
@@ -99,7 +100,13 @@ export default function AgentsPage(){
       {agents.map((agent)=><article className="panel catalog-card" key={agent.id}>
         <div className="card-title-row"><h2>{agent.name}</h2><div className="page-heading-actions">{agent.isDefault&&<span className="read-only">DEFAULT</span>}<button className="secondary-button" onClick={()=>openEdit(agent)}>Edit</button></div></div>
         <p>{agent.description||"No description."}</p>
-        <details className="agent-instructions" open><summary>Complete agent instructions</summary><pre>{agent.instructions}</pre></details>
+        <details className="agent-instructions" open><summary>Editable profile instructions</summary><pre>{agent.instructions}</pre></details>
+        {agent.isDefault&&<>
+          <details className="agent-system-details" open><summary>Built-in agent identity</summary><pre>{AGENT_IDENTITY}</pre></details>
+          <details className="agent-system-details" open><summary>Built-in investigation method</summary><pre>{AGENT_METHOD}</pre></details>
+          <details className="agent-system-details" open><summary>Built-in safety, search, and reporting rules</summary><pre>{AGENT_GUARDRAILS}</pre></details>
+          <div className="agent-context-note">At chat time, the application also adds the approved scope, selected skills, event or incident context, and cached Splunk knowledge. These are generated for each investigation.</div>
+        </>}
       </article>)}
       {!agents.length&&!error&&<div className="empty-state panel">Loading agents…</div>}
     </div>

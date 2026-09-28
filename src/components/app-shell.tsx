@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { StoredSplunkConnection } from "@/lib/connections";
 import type { AmeEvent, IncidentContext } from "@/lib/types";
@@ -36,11 +36,45 @@ export function useAppState():AppState{
 
 export default function AppShell({children}:{children:React.ReactNode}){
   const pathname=usePathname();
+  const router=useRouter();
+  const [authStatus,setAuthStatus]=useState<"loading"|"authenticated"|"unauthenticated"|"public">("loading");
+  const [authUser,setAuthUser]=useState<{id:string;username:string}|null>(null);
   const [selectedConnection,setConnection]=useState<StoredSplunkConnection|null>(null);
   const [selectedEvent,setEvent]=useState<AmeEvent|null>(null);
   const [selectedIncident,setIncident]=useState<IncidentContext|null>(null);
 
   useEffect(()=>{
+    if(pathname==="/login"){
+      setAuthStatus("public");
+      setAuthUser(null);
+      return;
+    }
+
+    let cancelled=false;
+    setAuthStatus("loading");
+    void fetch("/api/auth/session",{cache:"no-store"})
+      .then(async(response)=>{
+        const data=await response.json() as {authenticated?:boolean;user?:{id:string;username:string}};
+        if(!response.ok||!data.authenticated||!data.user) throw new Error("Authentication required.");
+        return data;
+      })
+      .then((data)=>{
+        if(cancelled) return;
+        setAuthUser(data.user??null);
+        setAuthStatus("authenticated");
+      })
+      .catch(()=>{
+        if(cancelled) return;
+        setAuthUser(null);
+        setAuthStatus("unauthenticated");
+        const next=pathname+(window.location.search||"");
+        router.replace(`/login?next=${encodeURIComponent(next)}`);
+      });
+    return ()=>{cancelled=true;};
+  },[pathname,router]);
+
+  useEffect(()=>{
+    if(authStatus!=="authenticated") return;
     try{
       const raw=sessionStorage.getItem("splunk-bot-selected-event");
       if(raw) setEvent(JSON.parse(raw) as AmeEvent);
@@ -58,7 +92,15 @@ export default function AppShell({children}:{children:React.ReactNode}){
         );
       })
       .catch(()=>{});
-  },[]);
+  },[authStatus]);
+
+  async function signOut(){
+    try{await fetch("/api/auth/logout",{method:"POST"});}
+    finally{
+      setAuthUser(null);
+      router.replace("/login");
+    }
+  }
 
   function setSelectedConnection(connection:StoredSplunkConnection|null){
     setConnection(connection);
@@ -86,6 +128,9 @@ export default function AppShell({children}:{children:React.ReactNode}){
     selectedIncident,
     setSelectedIncident,
   }),[selectedConnection,selectedEvent,selectedIncident]);
+
+  if(pathname==="/login") return <>{children}</>;
+  if(authStatus!=="authenticated") return <div className="auth-loading">Checking your session…</div>;
 
   return <AppStateContext.Provider value={value}>
     <div className="app-frame">
@@ -118,6 +163,9 @@ export default function AppShell({children}:{children:React.ReactNode}){
             <strong>{selectedConnection?.name??"No connection"}</strong>
             <small>{selectedConnection?selectedConnection.status:"Configure in Settings"}</small>
           </div>
+          <button className="sidebar-logout" type="button" onClick={signOut} title={`Sign out ${authUser?.username??""}`}>
+            Sign out
+          </button>
         </div>
       </aside>
       <div className="app-content">{children}</div>

@@ -97,6 +97,7 @@ export default function IncidentsPage(){
   const [saving,setSaving]=useState(false);
   const [error,setError]=useState("");
   const [status,setStatus]=useState("");
+  const [intakeOpen,setIntakeOpen]=useState(false);
   const [editorOpen,setEditorOpen]=useState(false);
   const [editingId,setEditingId]=useState<string|null>(null);
   const [draft,setDraft]=useState<ScenarioDraft>(EMPTY_SCENARIO);
@@ -149,6 +150,22 @@ export default function IncidentsPage(){
     void loadIncidents();
   },[selectedConnection]);
 
+  useEffect(()=>{
+    if(!editorOpen&&!intakeOpen) return;
+    const previousOverflow=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    function onKeyDown(event:KeyboardEvent){
+      if(event.key!=="Escape") return;
+      if(editorOpen) setEditorOpen(false);
+      else setIntakeOpen(false);
+    }
+    window.addEventListener("keydown",onKeyDown);
+    return ()=>{
+      document.body.style.overflow=previousOverflow;
+      window.removeEventListener("keydown",onKeyDown);
+    };
+  },[editorOpen,intakeOpen]);
+
   const categories=useMemo(
     ()=>["All",...Array.from(new Set(scenarios.map((scenario)=>scenario.category)))],
     [scenarios],
@@ -178,6 +195,7 @@ export default function IncidentsPage(){
     setValues({});
     setError("");
     setStatus("");
+    setIntakeOpen(true);
   }
 
   function updateValue(id:string,value:string){
@@ -234,6 +252,7 @@ export default function IncidentsPage(){
       ]);
       setSelectedEvent(null);
       setSelectedIncident(data.incidentContext);
+      setIntakeOpen(false);
       router.push("/dashboard");
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to create incident.");
@@ -243,6 +262,7 @@ export default function IncidentsPage(){
   }
 
   function openNewScenario(){
+    setIntakeOpen(false);
     setEditingId(null);
     setDraft(EMPTY_SCENARIO);
     setEditorOpen(true);
@@ -251,6 +271,7 @@ export default function IncidentsPage(){
   }
 
   function openEditor(scenario:StoredScenario){
+    setIntakeOpen(false);
     setEditingId(scenario.id);
     setDraft(draftFromScenario(scenario));
     setEditorOpen(true);
@@ -515,18 +536,24 @@ export default function IncidentsPage(){
       <div className="notice-box">Configure or select a Splunk connection in Settings before starting an incident.</div>
     }
 
-    {error&&<div className="error-box">{error}</div>}
+    {error&&!editorOpen&&!intakeOpen&&<div className="error-box">{error}</div>}
     {status&&<div className="status-box">{status}</div>}
 
-    {editorOpen&&<section className="panel scenario-builder-panel">
+    {editorOpen&&<div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event)=>{if(event.target===event.currentTarget) setEditorOpen(false);}}
+    >
+      <section className="panel scenario-builder-panel modal-dialog scenario-dialog" role="dialog" aria-modal="true" aria-labelledby="scenario-dialog-title" onMouseDown={(event)=>event.stopPropagation()}>
       <div className="panel-heading">
         <div>
           <div className="eyebrow">{editingId?"EDIT SCENARIO":"NEW SCENARIO"}</div>
-          <h2>{editingId?"Modify incident template":"Create incident template"}</h2>
+          <h2 id="scenario-dialog-title">{editingId?"Modify incident template":"Create incident template"}</h2>
           <p className="incident-objective">Define the context the analyst should capture before the investigation agent begins. These values narrow the search and are not evidence by themselves.</p>
         </div>
         <button className="secondary-button" onClick={()=>setEditorOpen(false)}>Close</button>
       </div>
+      {error&&<div className="error-box modal-error" role="alert">{error}</div>}
 
       <form onSubmit={saveScenario}>
         <div className="scenario-builder-grid">
@@ -669,7 +696,8 @@ export default function IncidentsPage(){
           </div>
         </div>
       </form>
-    </section>}
+      </section>
+    </div>}
 
     <section className="panel incident-catalog-toolbar">
       <input
@@ -717,57 +745,69 @@ export default function IncidentsPage(){
       {!loading&&!filtered.length&&<div className="empty-state panel">No incident scenarios match the current filter.</div>}
     </div>
 
-    <section className="panel incident-form-panel">
-      {selectedScenario?
-        <>
-          <div className="panel-heading">
-            <div>
-              <div className="eyebrow">INCIDENT INTAKE TEMPLATE</div>
-              <h2>{selectedScenario.name}</h2>
-              <p className="incident-objective">{selectedScenario.objective}</p>
-            </div>
+    {!intakeOpen&&<div className="incident-intake-hint panel">
+      <span className="eyebrow">INCIDENT INTAKE</span>
+      <span>Select an enabled scenario and choose <strong>Use template</strong> to enter the incident facts in a dialog.</span>
+    </div>}
+
+    {intakeOpen&&selectedScenario&&<div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event)=>{if(event.target===event.currentTarget) setIntakeOpen(false);}}
+    >
+      <section className="panel incident-form-panel modal-dialog intake-dialog" role="dialog" aria-modal="true" aria-labelledby="intake-dialog-title" onMouseDown={(event)=>event.stopPropagation()}>
+        <div className="panel-heading">
+          <div>
+            <div className="eyebrow">INCIDENT INTAKE</div>
+            <h2 id="intake-dialog-title">{selectedScenario.name}</h2>
+            <p className="incident-objective">{selectedScenario.objective}</p>
+          </div>
+          <div className="page-heading-actions">
             <span className="pill">{selectedScenario.category}</span>
+            <button type="button" className="secondary-button" onClick={()=>setIntakeOpen(false)}>Close</button>
+          </div>
+        </div>
+
+        {error&&<div className="error-box modal-error" role="alert">{error}</div>}
+
+        <div className="incident-focus-box">
+          <span className="label">Investigation focus</span>
+          <span>{selectedScenario.focus||"Use the completed intake context to determine the focus."}</span>
+        </div>
+
+        <form onSubmit={submitIncident}>
+          <div className="incident-form-grid">
+            {selectedScenario.fields.map((field)=>{
+              const value=values[field.id]??"";
+              return <label key={field.id} className={field.type==="textarea"?"incident-field full":"incident-field"}>
+                <span className="label">{field.label}{field.required?" *":""}</span>
+                {field.type==="textarea"
+                  ?<textarea value={value} onChange={(event)=>updateValue(field.id,event.target.value)} placeholder={field.placeholder} rows={4}/>
+                  :field.type==="select"
+                    ?<select value={value} onChange={(event)=>updateValue(field.id,event.target.value)}>
+                      <option value="">Select…</option>
+                      {(field.options??[]).map((option)=><option value={option} key={option}>{option}</option>)}
+                    </select>
+                    :<input type={field.type} value={value} onChange={(event)=>updateValue(field.id,event.target.value)} placeholder={field.placeholder}/>
+                }
+                {field.hint&&<small>{field.hint}</small>}
+              </label>;
+            })}
           </div>
 
-          <div className="incident-focus-box">
-            <span className="label">Investigation focus</span>
-            <span>{selectedScenario.focus||"Use the completed intake context to determine the focus."}</span>
+          <div className="incident-form-footer">
+            <div>
+              <strong>Stored incident record</strong>
+              <span>Submitting creates an incident record in PostgreSQL with the completed intake snapshot. The snapshot is passed to the investigation agent as context and remains distinguishable from Splunk evidence.</span>
+            </div>
+            <div className="page-heading-actions">
+              <button type="button" className="secondary-button" onClick={()=>setValues({})}>Clear form</button>
+              <button type="submit" className="primary-button" disabled={saving||!selectedConnection}>{saving?"Creating incident…":"Start investigation"}</button>
+            </div>
           </div>
-
-          <form onSubmit={submitIncident}>
-            <div className="incident-form-grid">
-              {selectedScenario.fields.map((field)=>{
-                const value=values[field.id]??"";
-                return <label key={field.id} className={field.type==="textarea"?"incident-field full":"incident-field"}>
-                  <span className="label">{field.label}{field.required?" *":""}</span>
-                  {field.type==="textarea"
-                    ?<textarea value={value} onChange={(event)=>updateValue(field.id,event.target.value)} placeholder={field.placeholder} rows={4}/>
-                    :field.type==="select"
-                      ?<select value={value} onChange={(event)=>updateValue(field.id,event.target.value)}>
-                        <option value="">Select…</option>
-                        {(field.options??[]).map((option)=><option value={option} key={option}>{option}</option>)}
-                      </select>
-                      :<input type={field.type} value={value} onChange={(event)=>updateValue(field.id,event.target.value)} placeholder={field.placeholder}/>
-                  }
-                  {field.hint&&<small>{field.hint}</small>}
-                </label>;
-              })}
-            </div>
-
-            <div className="incident-form-footer">
-              <div>
-                <strong>Stored incident record</strong>
-                <span>Submitting creates an incident record in PostgreSQL with the completed intake snapshot. The snapshot is passed to the investigation agent as context and remains distinguishable from Splunk evidence.</span>
-              </div>
-              <div className="page-heading-actions">
-                <button type="button" className="secondary-button" onClick={()=>setValues({})}>Clear form</button>
-                <button type="submit" className="primary-button" disabled={saving||!selectedConnection}>{saving?"Creating incident…":"Start investigation"}</button>
-              </div>
-            </div>
-          </form>
-        </>
-        :<div className="empty">Select an enabled incident scenario to begin.</div>}
-    </section>
+        </form>
+      </section>
+    </div>}
 
     <section className="panel recent-incidents-panel">
       <div className="panel-heading">

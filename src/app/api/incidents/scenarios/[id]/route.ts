@@ -6,6 +6,7 @@ import {
   updateIncidentScenario,
 } from "@/lib/incidents";
 import type { IncidentField } from "@/lib/incident-scenarios";
+import { requireApiAuth } from "@/lib/auth";
 
 type RouteContext={params:Promise<{id:string}>};
 
@@ -13,6 +14,8 @@ export async function GET(
   _request:NextRequest,
   context:RouteContext,
 ){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   const {id}=await context.params;
   try{
     const scenario=await getIncidentScenarioRecord(id);
@@ -32,6 +35,8 @@ export async function PATCH(
   request:NextRequest,
   context:RouteContext,
 ){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   const {id}=await context.params;
   try{
     const body=await request.json() as {
@@ -80,6 +85,8 @@ export async function DELETE(
   _request:NextRequest,
   context:RouteContext,
 ){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   const {id}=await context.params;
   try{
     await deleteIncidentScenario(id);

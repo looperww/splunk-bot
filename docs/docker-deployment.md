@@ -37,7 +37,9 @@ The compose file starts:
 - `splunk-bot`
 - `splunk-bot-db` (PostgreSQL 16)
 
-The application listens on port 3000.
+The application listens on port 3000 inside the container and is exposed on port 3456 by the default Compose file.
+
+On the first visit, create the administrator account in the browser. The password is stored only as a hash in PostgreSQL. If the app is behind HTTPS, set `AUTH_COOKIE_SECURE=true`; keep it false when accessing the HTTP port directly.
 
 ## 4. Health check
 

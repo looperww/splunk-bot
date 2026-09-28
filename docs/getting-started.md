@@ -31,7 +31,9 @@ Start:
 
 Open:
 
-    http://localhost:3000
+    http://localhost:3456
+
+On the first visit, create the administrator account in the browser. The password is stored only as a hash in PostgreSQL. Set `AUTH_COOKIE_SECURE=true` when the app is served over HTTPS; leave it false for a plain HTTP local deployment.
 
 ## Splunk connection setup
 

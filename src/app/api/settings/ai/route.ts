@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAiSettings, saveAiSettings } from "@/lib/ai-settings";
+import { requireApiAuth } from "@/lib/auth";
 
 export async function GET(){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{return NextResponse.json({settings:await getAiSettings()});}
   catch(error){
     return NextResponse.json(
@@ -12,6 +15,8 @@ export async function GET(){
 }
 
 export async function POST(request:NextRequest){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
   try{
     const body=await request.json() as {
       provider?:string;
