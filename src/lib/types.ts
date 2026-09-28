@@ -58,3 +58,17 @@ export type InvestigationScope = {
   dataSources:string;
   focus:string;
 };
+
+
+export type IncidentContext = {
+  incidentId?: string;
+  scenarioId: string;
+  scenarioName: string;
+  objective: string;
+  focus: string;
+  target: string;
+  detectedAt?: string;
+  summary: string;
+  values: Record<string, string>;
+  submittedAt: string;
+};

@@ -24,7 +24,13 @@ type ChatResponse={
 };
 
 export default function InvestigatorWorkspace(){
-  const {selectedConnection,selectedEvent,setSelectedEvent}=useAppState();
+  const {
+    selectedConnection,
+    selectedEvent,
+    setSelectedEvent,
+    selectedIncident,
+    setSelectedIncident,
+  }=useAppState();
   const [agents,setAgents]=useState<InvestigationAgent[]>([]);
   const [agentId,setAgentId]=useState("default-soc-agent");
   const [messages,setMessages]=useState<ChatMessage[]>([{
@@ -91,6 +97,7 @@ export default function InvestigatorWorkspace(){
         body:JSON.stringify({
           messages:[...messages,userMessage],
           eventContext:selectedEvent?.raw,
+          incidentContext:selectedIncident,
           connectionId:selectedConnection.id,
           agentId,
         }),
@@ -130,6 +137,7 @@ export default function InvestigatorWorkspace(){
     setSkills([]);
     setSearches([]);
     setBudget(null);
+    setSelectedIncident(null);
     setDraft("");
   }
 
@@ -158,7 +166,9 @@ export default function InvestigatorWorkspace(){
       </label>
       <div><span className="label">Connection</span><strong>{selectedConnection?.name??"Not configured"}</strong></div>
       <div><span className="label">Event context</span><strong>{selectedEvent?.title??"No event selected"}</strong></div>
+      <div><span className="label">Incident context</span><strong>{selectedIncident?.scenarioName??"No incident template"}</strong></div>
       {selectedEvent&&<button className="secondary-button" onClick={()=>setSelectedEvent(null)}>Clear event</button>}
+      {selectedIncident&&<button className="secondary-button" onClick={()=>setSelectedIncident(null)}>Clear incident</button>}
     </section>
 
     {selectedAgent&&<div className="agent-banner">
@@ -168,6 +178,25 @@ export default function InvestigatorWorkspace(){
 
     <div className="dashboard-layout">
       <section className="center-column">
+        {selectedIncident&&<div className="panel incident-context-panel">
+          <div className="panel-heading">
+            <div>
+              <div className="eyebrow">INCIDENT CONTEXT</div>
+              <h2>{selectedIncident.scenarioName}</h2>
+            </div>
+            <span className="read-only">ANALYST PROVIDED</span>
+          </div>
+          <div className="incident-context-summary">
+            <div><span className="label">Objective</span><span>{selectedIncident.objective}</span></div>
+            <div><span className="label">Target</span><span>{selectedIncident.target||"Not explicitly identified"}</span></div>
+            <div><span className="label">Detected</span><span>{selectedIncident.detectedAt||"Not provided"}</span></div>
+          </div>
+          <details className="incident-context-details">
+            <summary>View completed intake</summary>
+            <pre>{selectedIncident.summary}</pre>
+          </details>
+        </div>}
+
         {selectedEvent&&<div className="panel event-detail">
           <div className="panel-heading">
             <div><div className="eyebrow">SELECTED EVENT</div><h2>{selectedEvent.title}</h2></div>

@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { investigate, planInvestigation } from "@/lib/ai";
 import { getAiRuntimeSettings } from "@/lib/ai-settings";
 import { getAgent } from "@/lib/agents";
-import type { AgentBudget, ChatMessage } from "@/lib/types";
+import type { AgentBudget, ChatMessage, IncidentContext } from "@/lib/types";
 
 export async function POST(request: NextRequest){
   try{
     const body=(await request.json()) as {
       messages?:ChatMessage[];
       eventContext?:Record<string,unknown>;
+      incidentContext?:IncidentContext;
       connectionId?:string;
       agentId?:string;
     };
@@ -46,7 +47,12 @@ export async function POST(request: NextRequest){
     if(!agent){
       return NextResponse.json({error:"The selected investigation agent was not found."},{status:400});
     }
-    const plan=await planInvestigation(messages,body.eventContext,agent);
+    const plan=await planInvestigation(
+      messages,
+      body.eventContext,
+      agent,
+      body.incidentContext,
+    );
 
     if(plan.status==="clarification_needed"){
       const questionsText=plan.questions
@@ -83,6 +89,7 @@ export async function POST(request: NextRequest){
       plan.scope,
       connectionId,
       agent,
+      body.incidentContext,
     );
 
     return NextResponse.json({

@@ -21,14 +21,22 @@ const CATALOG:Skill[]=[
   {name:"conducting-malware-incident-response",path:"skills/malware/conducting-malware-incident-response.md",useWhen:["malware","trojan","ransomware","malware incident"],content:"Investigate infection vector, affected assets, process/network evidence, persistence and spread. Separate observations from hypotheses and keep response actions behind approval."},
 ];
 
-export function selectSkills(scope:InvestigationScope,limit=4):Skill[]{
+export function selectSkillsFromList(
+  catalog:Skill[],
+  scope:InvestigationScope,
+  limit=4,
+):Skill[]{
   const haystack=[scope.objective,scope.target,scope.dataSources,scope.focus].join(" ").toLowerCase();
-  const scored=CATALOG.map(skill=>({
+  const scored=catalog.map(skill=>({
     skill,
     score:skill.useWhen.reduce((n,t)=>n+(haystack.includes(t.toLowerCase())?1:0),0),
   })).sort((a,b)=>b.score-a.score);
   const selected=scored.filter(x=>x.score>0).slice(0,limit).map(x=>x.skill);
-  return selected.length?selected:CATALOG.slice(0,2);
+  return selected.length?selected:catalog.slice(0,2);
+}
+
+export function selectSkills(scope:InvestigationScope,limit=4):Skill[]{
+  return selectSkillsFromList(CATALOG,scope,limit);
 }
 
 export function skillCatalog():Array<Pick<Skill,"name"|"path"|"useWhen"|"content">>{

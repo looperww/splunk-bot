@@ -1,8 +1,9 @@
 import { searchSplunk } from "@/lib/splunk";
-import { selectSkills } from "@/lib/skill-router";
+import { selectDatabaseSkills } from "@/lib/skills";
 import { getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey } from "@/lib/agent";
 import type { InvestigationScope } from "@/lib/investigation";
+import type { IncidentContext } from "@/lib/types";
 
 export type LocalInvestigationResult={
   message:{role:"assistant";content:string};
@@ -55,7 +56,46 @@ function pickIndexes(knowledge:Knowledge,scope:InvestigationScope):string[]{
   return [...new Set([...preferred,...available])].slice(0,2);
 }
 
-function targetFilter(eventContext:Record<string,unknown>|undefined,scope:InvestigationScope):string{
+function targetFilter(
+  eventContext:Record<string,unknown>|undefined,
+  scope:InvestigationScope,
+  incidentContext?:IncidentContext,
+):string{
+  if(incidentContext){
+    const valueMap=incidentContext.values;
+    const targetMappings:[
+      string,
+      string
+    ][]=[
+      ["hostname","host"],
+      ["host","host"],
+      ["server_ip","src_ip"],
+      ["endpoint_ip","src_ip"],
+      ["source_ip","src_ip"],
+      ["attacker_ip","src_ip"],
+      ["suspicious_source_ip","src_ip"],
+      ["destination_ip","dest_ip"],
+      ["domain","domain"],
+      ["phishing_domain","domain"],
+      ["username","user"],
+      ["user","user"],
+      ["mailbox","user"],
+      ["db_user","user"],
+      ["service_identity","user"],
+      ["cloud_account","user"],
+      ["application","app"],
+      ["system","host"],
+      ["asset","host"],
+      ["service","host"],
+      ["entity","host"],
+    ];
+
+    for(const [fieldId,splunkField] of targetMappings){
+      const value=valueMap[fieldId]?.trim();
+      if(value) return splunkField+"="+quote(value);
+    }
+  }
+
   const candidates=[
     eventContext?.host,
     eventContext?.hostname,
@@ -64,6 +104,7 @@ function targetFilter(eventContext:Record<string,unknown>|undefined,scope:Invest
     eventContext?.src_ip,
     eventContext?.dest_ip,
     eventContext?.domain,
+    scope.target,
   ].filter((value)=>value!==undefined&&value!==null&&String(value).trim()!=="");
 
   if(!candidates.length) return "";
@@ -77,7 +118,9 @@ function targetFilter(eventContext:Record<string,unknown>|undefined,scope:Invest
         ?"src_ip"
         :eventContext?.dest_ip
           ?"dest_ip"
-          :"domain";
+          :eventContext?.domain
+            ?"domain"
+            :"host";
 
   return field+"="+quote(value);
 }
@@ -86,10 +129,11 @@ export async function investigateLocally(
   eventContext:Record<string,unknown>|undefined,
   scope:InvestigationScope,
   connectionId:string,
+  incidentContext?:IncidentContext,
 ):Promise<LocalInvestigationResult>{
   const knowledge=await getSplunkKnowledge(connectionId);
 
-  const skills=selectSkills(scope,4);
+  const skills=await selectDatabaseSkills(scope,4);
   const indexes=pickIndexes(knowledge,scope);
   if(!indexes.length){
     return {
@@ -145,7 +189,7 @@ export async function investigateLocally(
     });
   }
 
-  const target=targetFilter(eventContext,scope);
+  const target=targetFilter(eventContext,scope,incidentContext);
   const targetIndex=indexes[0];
 
   if(target&&targetIndex&&searchCount<AGENT_CONFIG.maxSearchesPerTurn){
@@ -187,9 +231,10 @@ export async function investigateLocally(
         "Local Splunk test mode completed a bounded investigation using the cached Splunk environment profile.",
         "",
         "Scope:",
+        "Scenario: "+(incidentContext?.scenarioName??"General investigation"),
         "Target: "+scope.target,
         "Time: "+scope.earliest+" → "+scope.latest,
-        "Focus: "+(scope.focus||"general"),
+        "Focus: "+(scope.focus||incidentContext?.focus||"general"),
         "",
         "Methods selected: "+(skills.map((skill)=>skill.name).join(", ")||"core investigation"),
         "",
