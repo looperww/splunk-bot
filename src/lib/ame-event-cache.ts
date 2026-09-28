@@ -43,6 +43,24 @@ export async function getCachedAmeEvents(
   };
 }
 
+export async function getCachedAmeEvent(
+  connectionId:string,
+  eventId:string,
+):Promise<{event:AmeEvent|null;cachedAt:string|null}>{
+  await ensureSchema();
+  const rows=await query<CachedEventRow>(
+    "SELECT event_id,title,status,urgency,created_value,owner_name,raw_data,"+
+      "cached_at FROM ame_event_cache "+
+      "WHERE connection_id=$1 AND event_id=$2 LIMIT 1",
+    [connectionId,eventId],
+  );
+
+  return {
+    event:rows[0]?mapEvent(rows[0]):null,
+    cachedAt:rows[0]?new Date(String(rows[0].cached_at)).toISOString():null,
+  };
+}
+
 export async function replaceCachedAmeEvents(
   connectionId:string,
   events:AmeEvent[],

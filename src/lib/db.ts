@@ -245,10 +245,18 @@ async function createSchema():Promise<void>{
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         instructions TEXT NOT NULL DEFAULT '',
+        identity_text TEXT NOT NULL DEFAULT '',
+        method_text TEXT NOT NULL DEFAULT '',
+        guardrails_text TEXT NOT NULL DEFAULT '',
         is_default BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      ALTER TABLE investigation_agents
+        ADD COLUMN IF NOT EXISTS identity_text TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS method_text TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS guardrails_text TEXT NOT NULL DEFAULT '';
 
       CREATE TABLE IF NOT EXISTS investigation_skills (
         id TEXT PRIMARY KEY,

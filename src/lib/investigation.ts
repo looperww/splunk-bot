@@ -121,15 +121,21 @@ export function mockClarificationPlan(
   event?: AmeEvent | null,
   incident?: IncidentContext | null,
 ): InvestigationPlan {
-  const lastUser = [...messages].reverse().find((message) => message.role === "user");
-  const userText = lastUser?.content ?? "";
+  const kickoffPattern=/start the investigation|begin the investigation|begin intake|ask me (the )?minimum|ask focused questions/i;
+  const userTexts=messages
+    .filter((message)=>message.role==="user")
+    .map((message)=>message.content.trim())
+    .filter(Boolean);
+  const substantiveTexts=userTexts.filter((text)=>!kickoffPattern.test(text));
+  const userText=substantiveTexts[substantiveTexts.length-1]??"";
+  const conversationText=substantiveTexts.join("\n");
 
-  const aroundAlert = /around the alert\s*[±+/-]?\s*24\s*hours?/i.test(userText);
-  const last24h = /last\s*24\s*hours?/i.test(userText);
-  const last7d = /last\s*(7\s*days?|week)/i.test(userText);
+  const aroundAlert = /around the alert\s*[±+/-]?\s*24\s*hours?/i.test(conversationText);
+  const last24h = /last\s*24\s*hours?/i.test(conversationText);
+  const last7d = /last\s*(7\s*days?|week)/i.test(conversationText);
   const relativeTime =
-    /last\s+(hour|2 hours|4 hours|day|week)/i.test(userText) ||
-    /\b\d+\s*(m|h|d|days?|hours?)\b/i.test(userText);
+    /last\s+(hour|2 hours|4 hours|day|week)/i.test(conversationText) ||
+    /\b\d+\s*(m|h|d|days?|hours?)\b/i.test(conversationText);
 
   const incidentTime = incident?.detectedAt ? Date.parse(incident.detectedAt) : NaN;
   const eventTime = event?.created ? Date.parse(String(event.created)) : NaN;
@@ -162,7 +168,10 @@ export function mockClarificationPlan(
   }
 
   const incidentObjective = incident?.objective?.trim() || "";
-  const objective = incidentObjective || userText.slice(0, 500);
+  const objectiveCandidate=substantiveTexts.find((text)=>(
+    !/^(around the alert|last\s+\d+\s*(hours?|days?)|last\s+(hour|day|week))/i.test(text)
+  ));
+  const objective = incidentObjective || objectiveCandidate?.slice(0, 500) || "";
   const target =
     incident?.target?.trim() ||
     (event?.id ? "AME event " + event.id : "");

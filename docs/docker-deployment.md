@@ -30,20 +30,28 @@ when an OpenAI key is not available. The application will still start and the we
 
 ## 3. Build and start
 
-docker compose up -d --build
+For a host using the shared Traefik `proxy` network, create the network once if it does not already exist:
 
-The compose file starts:
+docker network create proxy
+
+Set `AUTH_COOKIE_SECURE=true` in `.env`, then build and start:
+
+docker compose -f compose.yml up -d --build
+
+The Traefik compose file starts:
 
 - `splunk-bot`
 - `splunk-bot-db` (PostgreSQL 16)
 
-The application listens on port 3000 inside the container and is exposed on port 3456 by the default Compose file.
+The application listens on port 3000 inside the container, is exposed on host port 3456, and is routed through Traefik at:
+
+https://splunk-bot.security.bce.lu
 
 On the first visit, create the administrator account in the browser. The password is stored only as a hash in PostgreSQL. If the app is behind HTTPS, set `AUTH_COOKIE_SECURE=true`; keep it false when accessing the HTTP port directly.
 
 ## 4. Health check
 
-curl http://127.0.0.1:3000/api/health
+curl http://127.0.0.1:3456/api/health
 
 Expected response contains:
 
@@ -53,7 +61,7 @@ Expected response contains:
 
 Open:
 
-http://<docker-host>:3000
+https://splunk-bot.security.bce.lu
 
 Under **Connection & discovery**:
 
@@ -98,7 +106,7 @@ The local mode is deterministic and is not a substitute for the model-driven inv
 
 cd splunk-bot
 git pull
-docker compose up -d --build
+docker compose -f compose.yml up -d --build
 
 ## 8. Stop
 
@@ -114,7 +122,7 @@ docker compose down -v
 - Keep `SPLUNK_TOKEN_ENCRYPTION_KEY` outside PostgreSQL.
 - Use a dedicated read-only Splunk credential for the investigator.
 - Restrict `SPLUNK_ALLOWED_INDEXES` when appropriate.
-- Do not expose port 3000 directly to the Internet; put the application behind your existing reverse proxy/TLS layer.
+- Keep direct host port 3456 restricted to the server network where possible; put public access behind your existing reverse proxy/TLS layer.
 - Restrict access to the application with SSO/RBAC before broad internal use.
 - Do not disable TLS certificate verification for Splunk in production.
 - Back up the PostgreSQL volume securely because it contains encrypted Splunk credentials and investigation metadata.

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
-import { getInvestigation, updateInvestigation } from "@/lib/investigations";
+import {
+  deleteInvestigation,
+  getInvestigation,
+  updateInvestigation,
+} from "@/lib/investigations";
 import type { AgentBudget, ChatMessage, InvestigationScope, SearchAudit } from "@/lib/types";
 
 type RouteContext={params:Promise<{id:string}>};
@@ -54,6 +58,25 @@ export async function PATCH(
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to update investigation."},
+      {status:400},
+    );
+  }
+}
+
+export async function DELETE(
+  _request:NextRequest,
+  context:RouteContext,
+){
+  const auth=await requireApiAuth();
+  if(auth) return auth;
+  try{
+    const {id}=await context.params;
+    const deleted=await deleteInvestigation(id);
+    if(!deleted) return NextResponse.json({error:"Investigation not found."},{status:404});
+    return NextResponse.json({ok:true});
+  }catch(error){
+    return NextResponse.json(
+      {error:error instanceof Error?error.message:"Failed to delete investigation."},
       {status:400},
     );
   }

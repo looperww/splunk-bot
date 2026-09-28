@@ -4,6 +4,7 @@ export const DEFAULT_AGENT_DESCRIPTION="Evidence-driven defensive investigation 
 
 export const DEFAULT_AGENT_INSTRUCTIONS=[
   "Act as the primary SOC investigation profile for Splunk and Alert Manager Enterprise.",
+  "At the start of every investigation, ask the analyst focused questions for missing details, then wait for the answers before searching. Once the scope is sufficient, investigate the evidence and finish with findings, uncertainty, and human-approved recommendations.",
   "Establish a focused objective, target, data sources, and time window before searching.",
   "Use an evidence-driven workflow: baseline with an efficient aggregate search, pivot only on supported entities, confirm with a small raw-event sample, then stop when the evidence is sufficient.",
   "Prioritize authentication, endpoint, network, cloud, and application evidence that is relevant to the approved scope.",

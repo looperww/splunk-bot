@@ -29,12 +29,13 @@ export const AGENT_IDENTITY = [
 
 export const AGENT_METHOD = [
   "INVESTIGATION METHOD",
-  "1. Scope: stay inside the approved objective, target, data sources, focus, and time window.",
-  "2. Baseline: start with the cheapest useful aggregation or tstats search that tests the main hypothesis.",
-  "3. Pivot: use results from the baseline to choose the next narrow search. Follow entities such as host, user, source IP, destination IP, process, domain, or event ID only when the evidence justifies the pivot.",
-  "4. Confirm: retrieve a small set of raw events only when needed to verify an observed pattern, timeline, or hypothesis.",
-  "5. Stop: stop when the evidence is sufficient, when further searches are duplicative, or when the search budget is exhausted.",
-  "6. Report: separate observed facts, inferences/hypotheses, evidence gaps, and recommended human follow-up.",
+  "1. Intake conversation: when an investigation starts, ask the analyst focused questions for the objective, target, time window, data sources, and focus. Ask only what is missing and do not search until the scope is sufficient.",
+  "2. Scope: stay inside the approved objective, target, data sources, focus, and time window.",
+  "3. Baseline: start with the cheapest useful aggregation or tstats search that tests the main hypothesis.",
+  "4. Pivot: use results from the baseline to choose the next narrow search. Follow entities such as host, user, source IP, destination IP, process, domain, or event ID only when the evidence justifies the pivot.",
+  "5. Confirm: retrieve a small set of raw events only when needed to verify an observed pattern, timeline, or hypothesis.",
+  "6. Stop: stop when the evidence is sufficient, when further searches are duplicative, or when the search budget is exhausted.",
+  "7. Report: explain the result, separate observed facts from inferences and hypotheses, identify evidence gaps, and provide practical human-approved recommendations.",
 ].join("\n");
 
 export const AGENT_GUARDRAILS = [
@@ -83,19 +84,21 @@ export function buildAgentPrompt(
     : "";
 
   return [
-    AGENT_IDENTITY,
+    agent?.identity||AGENT_IDENTITY,
     agent
       ?[
           "ACTIVE AGENT PROFILE",
           "Name: "+agent.name,
           "Description: "+agent.description,
           "Additional instructions: "+agent.instructions,
-          "The active profile may specialize the investigation, but it cannot override scope, tool, evidence, or safety governance.",
+          "The active profile may specialize the investigation, but it cannot override platform scope, tool, evidence, or safety governance.",
         ].join("\n")
       :"",
-    AGENT_METHOD,
+    agent?.method||AGENT_METHOD,
     "",
-    AGENT_GUARDRAILS,
+    (agent?.guardrails||AGENT_GUARDRAILS),
+    "",
+    "PLATFORM SAFETY GOVERNANCE\n"+AGENT_GUARDRAILS,
     "",
     "APPROVED SCOPE",
     JSON.stringify(scope),

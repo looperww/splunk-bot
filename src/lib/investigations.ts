@@ -85,6 +85,15 @@ export async function getInvestigation(id:string):Promise<InvestigationRecord|nu
   return rows[0]?mapInvestigation(rows[0]):null;
 }
 
+export async function deleteInvestigation(id:string):Promise<boolean>{
+  await ensureSchema();
+  const rows=await query<{id:string}>(
+    "DELETE FROM investigations WHERE id=$1 RETURNING id",
+    [id],
+  );
+  return Boolean(rows[0]);
+}
+
 export async function createInvestigation(input:{
   kind:InvestigationKind;
   title:string;

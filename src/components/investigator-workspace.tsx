@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { FormEvent } from "react";
 import Link from "next/link";
 import { useAppState } from "@/components/app-shell";
 import type { InvestigationAgent } from "@/lib/agents";
@@ -33,7 +34,15 @@ type Scenario={
   description:string;
   objective:string;
   focus:string;
-  fields:{id:string;label:string}[];
+  fields:{
+    id:string;
+    label:string;
+    type:string;
+    required:boolean;
+    placeholder?:string;
+    hint?:string;
+    options?:string[];
+  }[];
 };
 
 function formatDate(value:string|null|undefined){
@@ -45,6 +54,9 @@ function formatDate(value:string|null|undefined){
 
 function eventContext(event:AmeEvent):Record<string,unknown>{
   return {
+    id:event.id,
+    title:event.title,
+    event_id:event.id,
     eventId:event.id,
     eventTitle:event.title,
     status:event.status??"",
@@ -73,12 +85,17 @@ export default function InvestigatorWorkspace(){
   const [scenarioDialogOpen,setScenarioDialogOpen]=useState(false);
   const [scenarios,setScenarios]=useState<Scenario[]>([]);
   const [scenarioLoading,setScenarioLoading]=useState(false);
+  const [selectedScenario,setSelectedScenario]=useState<Scenario|null>(null);
+  const [scenarioValues,setScenarioValues]=useState<Record<string,string>>({});
+  const [intakeOpen,setIntakeOpen]=useState(false);
+  const [savingIntake,setSavingIntake]=useState(false);
   const [activeInvestigation,setActiveInvestigation]=useState<InvestigationRecord|null>(null);
   const [dialogOpen,setDialogOpen]=useState(false);
   const [dialogLoading,setDialogLoading]=useState(false);
   const [draft,setDraft]=useState("");
   const [questions,setQuestions]=useState<InvestigationQuestion[]>([]);
   const [sending,setSending]=useState(false);
+  const [deleting,setDeleting]=useState(false);
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const ongoing=useMemo(
@@ -118,13 +135,14 @@ export default function InvestigatorWorkspace(){
   useEffect(()=>{void loadInvestigations();},[]);
 
   useEffect(()=>{
-    if(!dialogOpen&& !scenarioDialogOpen) return;
+    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen) return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
     function onKeyDown(event:KeyboardEvent){
       if(event.key==="Escape"){
         setDialogOpen(false);
         setScenarioDialogOpen(false);
+        setIntakeOpen(false);
       }
     }
     window.addEventListener("keydown",onKeyDown);
@@ -132,7 +150,7 @@ export default function InvestigatorWorkspace(){
       document.body.style.overflow=previous;
       window.removeEventListener("keydown",onKeyDown);
     };
-  },[dialogOpen,scenarioDialogOpen]);
+  },[dialogOpen,scenarioDialogOpen,intakeOpen]);
 
   function chooseAgent(id:string){
     setAgentId(id);
@@ -153,13 +171,14 @@ export default function InvestigatorWorkspace(){
     setEventError("");
     try{
       const response=await fetch(
-        "/api/ame/events?connectionId="+encodeURIComponent(selectedConnection.id)+"&refresh=true",
+        "/api/ame/events?connectionId="+encodeURIComponent(selectedConnection.id)+
+          "&eventId="+encodeURIComponent(requestedId),
         {cache:"no-store"},
       );
       const data=await response.json() as {events?:AmeEvent[];error?:string};
       if(!response.ok) throw new Error(data.error??"Failed to fetch events.");
       const found=(data.events??[]).find((item)=>String(item.id)===requestedId);
-      if(!found) throw new Error("Event "+requestedId+" was not found in Splunk Alert Manager.");
+      if(!found) throw new Error("Event "+requestedId+" was not found in the Events data. Refresh the Events page first if it is a new event.");
       setSelectedEvent(found);
       setEventId(found.id);
     }catch(reason){
@@ -220,7 +239,7 @@ export default function InvestigatorWorkspace(){
 
   async function investigateEvent(){
     if(!selectedEvent) return;
-    await createInvestigation({
+    const investigation=await createInvestigation({
       kind:"alert",
       title:selectedEvent.title||"Alert Manager event "+selectedEvent.id,
       description:"Alert Manager event "+selectedEvent.id+
@@ -228,6 +247,12 @@ export default function InvestigatorWorkspace(){
       sourceEventId:selectedEvent.id,
       eventContext:eventContext(selectedEvent),
     });
+    if(investigation){
+      await kickoffInvestigation(
+        investigation,
+        "Start the investigation for this Alert Manager event. Ask me the minimum high-value questions needed to establish the objective, target, and time window before searching Splunk.",
+      );
+    }
   }
 
   async function openInvestigation(id:string){
@@ -264,25 +289,78 @@ export default function InvestigatorWorkspace(){
     }
   }
 
-  async function startScenario(scenario:Scenario){
-    const context:IncidentContext={
-      scenarioId:scenario.id,
-      scenarioName:scenario.name,
-      objective:scenario.objective,
-      focus:scenario.focus,
-      target:"",
-      summary:"Scenario selected: "+scenario.name,
-      values:{},
-      submittedAt:new Date().toISOString(),
-    };
-    setSelectedIncident(context);
+  function startScenario(scenario:Scenario){
+    setSelectedScenario(scenario);
+    setScenarioValues({});
     setScenarioDialogOpen(false);
-    await createInvestigation({
-      kind:"incident",
-      title:scenario.name,
-      description:scenario.description||scenario.objective,
-      incidentContext:context,
-    });
+    setIntakeOpen(true);
+    setError("");
+  }
+
+  function updateScenarioValue(id:string,value:string){
+    setScenarioValues((current)=>({...current,[id]:value}));
+  }
+
+  async function submitScenario(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();
+    setError("");
+    if(!selectedConnection){
+      setError("Select a Splunk connection before starting an investigation.");
+      return;
+    }
+    if(!selectedScenario){
+      setError("Select an incident scenario first.");
+      return;
+    }
+    const missing=selectedScenario.fields
+      .filter((field)=>field.required&&!scenarioValues[field.id]?.trim())
+      .map((field)=>field.label);
+    if(missing.length){
+      setError("Please complete: "+missing.join(", "));
+      return;
+    }
+    setSavingIntake(true);
+    try{
+      const response=await fetch("/api/incidents",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          scenarioId:selectedScenario.id,
+          values:scenarioValues,
+          connectionId:selectedConnection.id,
+        }),
+      });
+      const data=await response.json() as {
+        incident?:{context:IncidentContext};
+        incidentContext?:IncidentContext;
+        investigation?:InvestigationRecord;
+        error?:string;
+      };
+      if(!response.ok||!data.investigation||!data.incidentContext){
+        throw new Error(data.error??"Failed to create incident investigation.");
+      }
+      setSelectedEvent(null);
+      setSelectedIncident(data.incidentContext);
+      setIntakeOpen(false);
+      setSelectedScenario(null);
+      setInvestigations((current)=>[
+        data.investigation!,
+        ...current.filter((item)=>item.id!==data.investigation!.id),
+      ]);
+      setActiveInvestigation(data.investigation);
+      setDialogOpen(true);
+      setQuestions([]);
+      setDraft("");
+      await kickoffInvestigation(
+        data.investigation,
+        "Start the investigation using the incident intake I just submitted. Ask me the minimum high-value questions needed to complete the scope, then begin the analysis when the scope is sufficient.",
+      );
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to start incident investigation.");
+    }finally{
+      setSavingIntake(false);
+      setSending(false);
+    }
   }
 
   async function persistInvestigation(record:InvestigationRecord){
@@ -303,6 +381,77 @@ export default function InvestigatorWorkspace(){
     }catch{}
   }
 
+  async function runAgent(
+    record:InvestigationRecord,
+    nextMessages:ChatMessage[],
+  ){
+    const response=await fetch("/api/chat",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        messages:nextMessages,
+        eventContext:record.eventContext??undefined,
+        incidentContext:record.incidentContext??undefined,
+        connectionId:record.connectionId??selectedConnection?.id,
+        agentId:record.agentId??agentId,
+      }),
+    });
+    const data=await response.json() as ChatResponse;
+    if(!response.ok) throw new Error(data.error??"Investigation failed.");
+    const assistant=data.message
+      ?{...data.message,id:data.message.id??crypto.randomUUID()}
+      :null;
+    const updated={
+      ...record,
+      messages:assistant?[...nextMessages,assistant]:nextMessages,
+      report:assistant?.content??record.report,
+      scope:data.scope??record.scope,
+      searches:data.searches?.length?[...record.searches,...data.searches]:record.searches,
+      skills:data.skills??record.skills,
+      budget:data.budget??record.budget,
+      updatedAt:new Date().toISOString(),
+    };
+    setActiveInvestigation(updated);
+    setQuestions(data.questions??[]);
+    setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+    await persistInvestigation(updated);
+    return updated;
+  }
+
+  async function kickoffInvestigation(
+    record:InvestigationRecord,
+    content:string,
+  ){
+    const initialMessage:ChatMessage={
+      id:crypto.randomUUID(),
+      role:"user",
+      content,
+    };
+    const optimistic={
+      ...record,
+      messages:[...record.messages,initialMessage],
+      updatedAt:new Date().toISOString(),
+    };
+    setActiveInvestigation(optimistic);
+    setInvestigations((current)=>current.map((item)=>item.id===optimistic.id?optimistic:item));
+    setQuestions([]);
+    setSending(true);
+    try{
+      await runAgent(optimistic,optimistic.messages);
+    }catch(reason){
+      const message="Investigation error: "+(reason instanceof Error?reason.message:"Unknown error.");
+      const updated={
+        ...optimistic,
+        messages:[...optimistic.messages,{id:crypto.randomUUID(),role:"assistant" as const,content:message}],
+      };
+      setActiveInvestigation(updated);
+      setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+      setError(message);
+    }finally{
+      setSending(false);
+    }
+  }
+
   async function sendMessage(contentFromButton?:string){
     const content=(contentFromButton??draft).trim();
     if(!content||sending||!activeInvestigation) return;
@@ -316,36 +465,7 @@ export default function InvestigatorWorkspace(){
     setSending(true);
     setError("");
     try{
-      const response=await fetch("/api/chat",{
-        method:"POST",
-        headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          messages:nextMessages,
-          eventContext:previous.eventContext??undefined,
-          incidentContext:previous.incidentContext??undefined,
-          connectionId:previous.connectionId??selectedConnection?.id,
-          agentId:previous.agentId??agentId,
-        }),
-      });
-      const data=await response.json() as ChatResponse;
-      if(!response.ok) throw new Error(data.error??"Investigation failed.");
-      const assistant=data.message
-        ? {...data.message,id:data.message.id??crypto.randomUUID()}
-        : null;
-      const updated={
-        ...optimistic,
-        messages:assistant?[...nextMessages,assistant]:nextMessages,
-        report:assistant?.content??optimistic.report,
-        scope:data.scope??optimistic.scope,
-        searches:data.searches?.length?[...optimistic.searches,...data.searches]:optimistic.searches,
-        skills:data.skills??optimistic.skills,
-        budget:data.budget??optimistic.budget,
-        updatedAt:new Date().toISOString(),
-      };
-      setActiveInvestigation(updated);
-      setQuestions(data.questions??[]);
-      setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
-      await persistInvestigation(updated);
+      await runAgent(optimistic,nextMessages);
     }catch(reason){
       const message="Investigation error: "+(reason instanceof Error?reason.message:"Unknown error.");
       const updated={...optimistic,messages:[...nextMessages,{id:crypto.randomUUID(),role:"assistant" as const,content:message}]};
@@ -364,10 +484,34 @@ export default function InvestigatorWorkspace(){
     await persistInvestigation(updated);
   }
 
+  async function deleteActiveInvestigation(){
+    if(!activeInvestigation||deleting) return;
+    if(!window.confirm("Delete this investigation? Its chat history, report, and evidence audit will be permanently removed.")){
+      return;
+    }
+    setDeleting(true);
+    setError("");
+    try{
+      const response=await fetch(
+        "/api/investigations/"+encodeURIComponent(activeInvestigation.id),
+        {method:"DELETE"},
+      );
+      const data=await response.json() as {ok?:boolean;error?:string};
+      if(!response.ok||!data.ok) throw new Error(data.error??"Failed to delete investigation.");
+      setInvestigations((current)=>current.filter((item)=>item.id!==activeInvestigation.id));
+      closeDialogs();
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to delete investigation.");
+    }finally{
+      setDeleting(false);
+    }
+  }
+
   function closeDialogs(){
-    if(sending) return;
+    if(sending||deleting) return;
     setDialogOpen(false);
     setScenarioDialogOpen(false);
+    setIntakeOpen(false);
     setActiveInvestigation(null);
     setQuestions([]);
   }
@@ -475,7 +619,7 @@ export default function InvestigatorWorkspace(){
           <div><div className="eyebrow">NEW INVESTIGATION</div><h2 id="scenario-picker-title">Choose an incident scenario</h2></div>
           <button className="icon-button" type="button" onClick={closeDialogs} aria-label="Close">×</button>
         </div>
-        <p className="modal-intro">Choose the investigation objective to start with. You can provide the target and time window in the chat.</p>
+        <p className="modal-intro">Choose an investigation objective, then complete its intake fields before the agent starts.</p>
         {scenarioLoading?<div className="empty">Loading scenarios…</div>:scenarios.length===0?<div className="empty">No enabled incident scenarios are available.</div>:<div className="scenario-picker-grid">
           {scenarios.map((scenario)=><article className="scenario-picker-card" key={scenario.id}>
             <span className="eyebrow">{scenario.category}</span>
@@ -484,6 +628,57 @@ export default function InvestigatorWorkspace(){
             <button className="primary-button" type="button" onClick={()=>void startScenario(scenario)}>Start investigation</button>
           </article>)}
         </div>}
+      </section>
+    </div>}
+
+    {intakeOpen&&selectedScenario&&<div className="modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!savingIntake) setIntakeOpen(false);}}>
+      <section className="panel incident-form-panel modal-dialog intake-dialog" role="dialog" aria-modal="true" aria-labelledby="dashboard-intake-title" onMouseDown={(event)=>event.stopPropagation()}>
+        <div className="panel-heading">
+          <div>
+            <div className="eyebrow">INCIDENT INTAKE</div>
+            <h2 id="dashboard-intake-title">{selectedScenario.name}</h2>
+            <p className="incident-objective">{selectedScenario.objective}</p>
+          </div>
+          <div className="page-heading-actions">
+            <span className="pill">{selectedScenario.category}</span>
+            <button type="button" className="secondary-button" onClick={()=>setIntakeOpen(false)} disabled={savingIntake}>Close</button>
+          </div>
+        </div>
+        {error&&<div className="error-box modal-error" role="alert">{error}</div>}
+        <div className="incident-focus-box">
+          <span className="label">Investigation focus</span>
+          <span>{selectedScenario.focus||"Use the completed intake context to determine the focus."}</span>
+        </div>
+        <form onSubmit={submitScenario}>
+          <div className="incident-form-grid">
+            {selectedScenario.fields.map((field)=>{
+              const value=scenarioValues[field.id]??"";
+              return <label key={field.id} className={field.type==="textarea"?"incident-field full":"incident-field"}>
+                <span className="label">{field.label}{field.required?" *":""}</span>
+                {field.type==="textarea"
+                  ?<textarea value={value} onChange={(event)=>updateScenarioValue(field.id,event.target.value)} placeholder={field.placeholder} rows={4}/>
+                  :field.type==="select"
+                    ?<select value={value} onChange={(event)=>updateScenarioValue(field.id,event.target.value)}>
+                      <option value="">Select…</option>
+                      {(field.options??[]).map((option)=><option value={option} key={option}>{option}</option>)}
+                    </select>
+                    :<input type={field.type} value={value} onChange={(event)=>updateScenarioValue(field.id,event.target.value)} placeholder={field.placeholder}/>
+                }
+                {field.hint&&<small>{field.hint}</small>}
+              </label>;
+            })}
+          </div>
+          <div className="incident-form-footer">
+            <div>
+              <strong>Start AI investigation</strong>
+              <span>The submitted intake is stored with the investigation, then sent to the selected agent automatically to establish scope and begin analysis.</span>
+            </div>
+            <div className="page-heading-actions">
+              <button type="button" className="secondary-button" onClick={()=>setScenarioValues({})} disabled={savingIntake}>Clear form</button>
+              <button type="submit" className="primary-button" disabled={savingIntake||!selectedConnection}>{savingIntake?"Starting investigation…":"Start investigation"}</button>
+            </div>
+          </div>
+        </form>
       </section>
     </div>}
 
@@ -499,6 +694,7 @@ export default function InvestigatorWorkspace(){
             <div className="investigation-dialog-actions">
               <span className={"investigation-status "+activeInvestigation.status}>{activeInvestigation.status}</span>
               <button className="secondary-button" type="button" onClick={()=>void setInvestigationStatus(activeInvestigation.status==="ongoing"?"closed":"ongoing")}>{activeInvestigation.status==="ongoing"?"Close investigation":"Reopen investigation"}</button>
+              <button className="secondary-button" type="button" onClick={()=>void deleteActiveInvestigation()} disabled={deleting}>{deleting?"Deleting…":"Delete investigation"}</button>
               <button className="icon-button" type="button" onClick={closeDialogs} aria-label="Close">×</button>
             </div>
           </header>

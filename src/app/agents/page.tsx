@@ -4,8 +4,22 @@ import { useEffect, useState } from "react";
 import type { InvestigationAgent } from "@/lib/agents";
 import { AGENT_GUARDRAILS, AGENT_IDENTITY, AGENT_METHOD } from "@/lib/agent";
 
-type AgentForm={name:string;description:string;instructions:string};
-const emptyForm:AgentForm={name:"",description:"",instructions:""};
+type AgentForm={
+  name:string;
+  description:string;
+  identity:string;
+  method:string;
+  guardrails:string;
+  instructions:string;
+};
+const emptyForm:AgentForm={
+  name:"",
+  description:"",
+  identity:AGENT_IDENTITY,
+  method:AGENT_METHOD,
+  guardrails:AGENT_GUARDRAILS,
+  instructions:"",
+};
 
 export default function AgentsPage(){
   const [agents,setAgents]=useState<InvestigationAgent[]>([]);
@@ -35,7 +49,14 @@ export default function AgentsPage(){
 
   function openEdit(agent:InvestigationAgent){
     setEditingId(agent.id);
-    setForm({name:agent.name,description:agent.description,instructions:agent.instructions});
+    setForm({
+      name:agent.name,
+      description:agent.description,
+      identity:agent.identity,
+      method:agent.method,
+      guardrails:agent.guardrails,
+      instructions:agent.instructions,
+    });
     setNotice("");
     setError("");
     setEditorOpen(true);
@@ -55,7 +76,7 @@ export default function AgentsPage(){
         {
           method:editingId?"PATCH":"POST",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify(form),
+        body:JSON.stringify(form),
         },
       );
       const data=await response.json() as {agent?:InvestigationAgent;error?:string};
@@ -75,7 +96,7 @@ export default function AgentsPage(){
       <div>
         <div className="eyebrow">INVESTIGATION PROFILES</div>
         <h1>Agents</h1>
-        <p>View complete agent instructions, create specialized profiles, and select one from Dashboard chat.</p>
+        <p>Edit every part of an agent profile, create specialized profiles, and select one from Dashboard chat.</p>
       </div>
       <div className="page-heading-actions"><span className="count">{agents.length}</span><button className="primary-button" onClick={openCreate}>Create agent</button></div>
     </header>
@@ -91,22 +112,23 @@ export default function AgentsPage(){
       <div className="agent-form">
         <label><span className="label">Name</span><input value={form.name} onChange={(event)=>updateForm("name",event.target.value)} placeholder="Cloud Investigation Agent"/></label>
         <label><span className="label">Description</span><input value={form.description} onChange={(event)=>updateForm("description",event.target.value)} placeholder="Focuses on cloud identity and audit evidence"/></label>
+        <label className="full"><span className="label">Agent identity</span><textarea value={form.identity} onChange={(event)=>updateForm("identity",event.target.value)} placeholder="Define who this agent is and what role it serves." rows={7}/></label>
+        <label className="full"><span className="label">Investigation method</span><textarea value={form.method} onChange={(event)=>updateForm("method",event.target.value)} placeholder="Describe the investigation workflow and evidence approach." rows={9}/></label>
+        <label className="full"><span className="label">Safety, search, and reporting rules</span><textarea value={form.guardrails} onChange={(event)=>updateForm("guardrails",event.target.value)} placeholder="Define the profile's safety, query, evidence, and reporting guidance." rows={14}/></label>
         <label className="full"><span className="label">Complete agent instructions</span><textarea value={form.instructions} onChange={(event)=>updateForm("instructions",event.target.value)} placeholder="Describe this agent's specialization, evidence priorities, reporting focus, and limits." rows={10}/></label>
       </div>
-      <button className="primary-button" disabled={busy||!form.name.trim()||!form.instructions.trim()} onClick={()=>void saveAgent()}>{busy?"Saving…":editingId?"Save changes":"Create agent"}</button>
+      <button className="primary-button" disabled={busy||!form.name.trim()||!form.identity.trim()||!form.method.trim()||!form.guardrails.trim()||!form.instructions.trim()} onClick={()=>void saveAgent()}>{busy?"Saving…":editingId?"Save changes":"Create agent"}</button>
     </section>}
 
     <div className="card-grid agents-grid">
       {agents.map((agent)=><article className="panel catalog-card" key={agent.id}>
         <div className="card-title-row"><h2>{agent.name}</h2><div className="page-heading-actions">{agent.isDefault&&<span className="read-only">DEFAULT</span>}<button className="secondary-button" onClick={()=>openEdit(agent)}>Edit</button></div></div>
         <p>{agent.description||"No description."}</p>
-        <details className="agent-instructions" open><summary>Editable profile instructions</summary><pre>{agent.instructions}</pre></details>
-        {agent.isDefault&&<>
-          <details className="agent-system-details" open><summary>Built-in agent identity</summary><pre>{AGENT_IDENTITY}</pre></details>
-          <details className="agent-system-details" open><summary>Built-in investigation method</summary><pre>{AGENT_METHOD}</pre></details>
-          <details className="agent-system-details" open><summary>Built-in safety, search, and reporting rules</summary><pre>{AGENT_GUARDRAILS}</pre></details>
-          <div className="agent-context-note">At chat time, the application also adds the approved scope, selected skills, event or incident context, and cached Splunk knowledge. These are generated for each investigation.</div>
-        </>}
+        <details className="agent-instructions" open><summary>Complete agent instructions</summary><pre>{agent.instructions}</pre></details>
+        <details className="agent-system-details" open><summary>Agent identity</summary><pre>{agent.identity}</pre></details>
+        <details className="agent-system-details" open><summary>Investigation method</summary><pre>{agent.method}</pre></details>
+        <details className="agent-system-details" open><summary>Safety, search, and reporting rules</summary><pre>{agent.guardrails}</pre></details>
+        <div className="agent-context-note">At chat time, the application also adds platform safety governance, approved scope, selected skills, event or incident context, and cached Splunk knowledge. These are generated for each investigation.</div>
       </article>)}
       {!agents.length&&!error&&<div className="empty-state panel">Loading agents…</div>}
     </div>
