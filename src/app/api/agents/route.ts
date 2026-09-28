@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAgent, listAgents } from "@/lib/agents";
+import { createAgent, listAgents, updateAgent } from "@/lib/agents";
 
 export async function GET(){
   try{return NextResponse.json({agents:await listAgents()});}
@@ -27,6 +27,30 @@ export async function POST(request:NextRequest){
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to create agent."},
+      {status:400},
+    );
+  }
+}
+
+export async function PATCH(request:NextRequest){
+  try{
+    const url=new URL(request.url);
+    const id=url.searchParams.get("id")??"";
+    if(!id) return NextResponse.json({error:"Agent id is required."},{status:400});
+    const body=await request.json() as {
+      name?:string;
+      description?:string;
+      instructions?:string;
+    };
+    const agent=await updateAgent(id,{
+      name:String(body.name??""),
+      description:String(body.description??""),
+      instructions:String(body.instructions??""),
+    });
+    return NextResponse.json({agent});
+  }catch(error){
+    return NextResponse.json(
+      {error:error instanceof Error?error.message:"Failed to update agent."},
       {status:400},
     );
   }

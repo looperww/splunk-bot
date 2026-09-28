@@ -187,6 +187,21 @@ async function createSchema():Promise<void>{
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS investigation_skills (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE,
+        path TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        use_when JSONB NOT NULL DEFAULT '[]'::jsonb,
+        content TEXT NOT NULL DEFAULT '',
+        is_system_default BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS investigation_skills_default_idx
+        ON investigation_skills(is_system_default, name);
+
       CREATE TABLE IF NOT EXISTS ame_event_cache (
         connection_id TEXT NOT NULL REFERENCES splunk_connections(id) ON DELETE CASCADE,
         event_id TEXT NOT NULL,

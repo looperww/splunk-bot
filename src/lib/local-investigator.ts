@@ -1,5 +1,5 @@
 import { searchSplunk } from "@/lib/splunk";
-import { selectSkills } from "@/lib/skill-router";
+import { selectDatabaseSkills } from "@/lib/skills";
 import { getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey } from "@/lib/agent";
 import type { InvestigationScope } from "@/lib/investigation";
@@ -133,7 +133,7 @@ export async function investigateLocally(
 ):Promise<LocalInvestigationResult>{
   const knowledge=await getSplunkKnowledge(connectionId);
 
-  const skills=selectSkills(scope,4);
+  const skills=await selectDatabaseSkills(scope,4);
   const indexes=pickIndexes(knowledge,scope);
   if(!indexes.length){
     return {

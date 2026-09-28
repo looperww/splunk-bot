@@ -9,7 +9,7 @@ import {
   type InvestigationQuestion,
   type InvestigationScope,
 } from "@/lib/investigation";
-import { selectSkills } from "@/lib/skill-router";
+import { selectDatabaseSkills } from "@/lib/skills";
 import { buildKnowledgePrompt, getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import {
   AGENT_CONFIG,
@@ -345,7 +345,7 @@ export async function investigate(
     return investigateLocally(eventContext,scope,connectionId,incidentContext);
   }
 
-  const skills=selectSkills(scope,4);
+  const skills=await selectDatabaseSkills(scope,4);
   const knowledge=await getSplunkKnowledge(connectionId);
   const developerPrompt=buildAgentPrompt(scope,skills,eventContext,agent,incidentContext)+"\n\n"+buildKnowledgePrompt(knowledge);
 

@@ -65,3 +65,32 @@ export async function createAgent(input:{
   if(!agent) throw new Error("Failed to read the created agent.");
   return agent;
 }
+
+export async function updateAgent(id:string,input:{
+  name:string;
+  description:string;
+  instructions:string;
+}):Promise<InvestigationAgent>{
+  await ensureSchema();
+  const name=input.name.trim();
+  const description=input.description.trim();
+  const instructions=input.instructions.trim();
+
+  if(!name) throw new Error("Agent name is required.");
+  if(name.length>120) throw new Error("Agent name is too long.");
+  if(description.length>1000) throw new Error("Agent description is too long.");
+  if(!instructions) throw new Error("Agent instructions are required.");
+  if(instructions.length>12000) throw new Error("Agent instructions are too long.");
+
+  const existing=await getAgent(id);
+  if(!existing) throw new Error("Agent not found.");
+  await query(
+    `UPDATE investigation_agents
+     SET name=$2,description=$3,instructions=$4,updated_at=NOW()
+     WHERE id=$1`,
+    [id,name,description,instructions],
+  );
+  const agent=await getAgent(id);
+  if(!agent) throw new Error("Failed to read the updated agent.");
+  return agent;
+}
