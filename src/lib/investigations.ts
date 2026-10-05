@@ -3,8 +3,10 @@ import { ensureSchema, query } from "@/lib/db";
 import type {
   AgentBudget,
   ChatMessage,
+  DecisionClassification,
   IncidentContext,
   InvestigationKind,
+  InvestigationMatch,
   InvestigationRecord,
   InvestigationScope,
   InvestigationStatus,
@@ -13,10 +15,33 @@ import type {
 
 type Row=Record<string,unknown>;
 
+const VOLATILE_EVENT_KEY=/^(?:id|event[_-]?id|eventid|source[_-]?event[_-]?id|_key|created|created[_-]?at|createdat|first[_-]?seen|firstseen|last[_-]?seen|lastseen|updated|updated[_-]?at|updatedat|timestamp|time|_time|date|start[_-]?time|end[_-]?time|event[_-]?time|alert[_-]?time|time[_-]?(?:generated|created|seen)|detected[_-]?at|submitted[_-]?at)$/i;
+
 function recordValue(value:unknown):Record<string,unknown>|null{
   return value&&typeof value==="object"&&!Array.isArray(value)
     ?value as Record<string,unknown>
     :null;
+}
+
+function stableEventValue(value:unknown,key?:string):unknown{
+  if(key&&VOLATILE_EVENT_KEY.test(key)) return undefined;
+  if(Array.isArray(value)) return value.map((item)=>stableEventValue(item));
+  if(value&&typeof value==="object"){
+    const entries=Object.entries(value as Record<string,unknown>)
+      .map(([entryKey,entryValue])=>[entryKey,stableEventValue(entryValue,entryKey)] as const)
+      .filter(([,entryValue])=>entryValue!==undefined)
+      .sort(([left],[right])=>left.localeCompare(right));
+    return Object.fromEntries(entries);
+  }
+  return value;
+}
+
+function eventMatchFingerprint(input:Pick<InvestigationRecord,"kind"|"title"|"eventContext">):string|null{
+  if(input.kind!=="alert"||!input.eventContext) return null;
+  return JSON.stringify(stableEventValue({
+    title:input.title.trim().toLowerCase(),
+    context:input.eventContext,
+  }));
 }
 
 function mapMessages(value:unknown):ChatMessage[]{
@@ -87,6 +112,61 @@ export async function getInvestigation(id:string):Promise<InvestigationRecord|nu
     [id],
   );
   return rows[0]?mapInvestigation(rows[0]):null;
+}
+
+export async function findMatchingOpenInvestigations(
+  investigation:InvestigationRecord,
+):Promise<InvestigationMatch[]>{
+  const fingerprint=eventMatchFingerprint(investigation);
+  if(!fingerprint||!investigation.connectionId) return [];
+  await ensureSchema();
+  const rows=await query<Row>(
+    `SELECT id,kind,title,description,source_event_id,event_context,created_at,updated_at
+       FROM investigations
+      WHERE connection_id=$1
+        AND kind='alert'
+        AND status='ongoing'
+        AND id<>$2
+      ORDER BY updated_at DESC
+      LIMIT 250`,
+    [investigation.connectionId,investigation.id],
+  );
+  return rows
+    .filter((row)=>eventMatchFingerprint({
+      kind:"alert",
+      title:String(row.title??""),
+      eventContext:recordValue(row.event_context),
+    })===fingerprint)
+    .map((row)=>({
+      id:String(row.id),
+      title:String(row.title??"Untitled investigation"),
+      description:String(row.description??""),
+      sourceEventId:row.source_event_id==null?null:String(row.source_event_id),
+      createdAt:new Date(String(row.created_at)).toISOString(),
+      updatedAt:new Date(String(row.updated_at)).toISOString(),
+    }));
+}
+
+export async function closeInvestigationMatches(input:{
+  ids:string[];
+  classification:DecisionClassification;
+  reason:string;
+}):Promise<string[]>{
+  const ids=[...new Set(input.ids.map((id)=>String(id).trim()).filter(Boolean))];
+  if(!ids.length) return [];
+  await ensureSchema();
+  const rows=await query<Row>(
+    `UPDATE investigations
+        SET status='closed',
+            closure_classification=$2,
+            closure_reason=$3,
+            updated_at=NOW()
+      WHERE id=ANY($1::text[])
+        AND status='ongoing'
+      RETURNING id`,
+    [ids,input.classification,input.reason],
+  );
+  return rows.map((row)=>String(row.id));
 }
 
 export async function deleteInvestigation(id:string):Promise<boolean>{

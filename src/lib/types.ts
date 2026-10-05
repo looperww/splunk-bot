@@ -150,3 +150,22 @@ export type InvestigationRecord={
   createdAt:string;
   updatedAt:string;
 };
+
+export type InvestigationMatch={
+  id:string;
+  title:string;
+  description:string;
+  sourceEventId:string|null;
+  createdAt:string;
+  updatedAt:string;
+};
+
+export type InvestigationClosureNotification={
+  id:string;
+  createdAt:string;
+  sourceInvestigationId:string;
+  sourceTitle:string;
+  classification:DecisionClassification;
+  reason:string;
+  matches:InvestigationMatch[];
+};

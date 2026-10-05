@@ -14,7 +14,9 @@ import type {
   ClosureSuggestion,
   DecisionClassification,
   IncidentContext,
+  InvestigationClosureNotification,
   InvestigationLearningDraft,
+  InvestigationMatch,
   InvestigationQuestion,
   InvestigationRecord,
   InvestigationScope,
@@ -29,6 +31,7 @@ type ChatResponse={
   searches?:SearchAudit[];
   skills?:string[];
   budget?:AgentBudget;
+  matchingInvestigations?:InvestigationMatch[];
   error?:string;
 };
 
@@ -156,6 +159,9 @@ export default function InvestigatorWorkspace(){
     setSelectedEvent,
     selectedIncident,
     setSelectedIncident,
+    notifications,
+    addNotification,
+    dismissNotification,
   }=useAppState();
   const [agents,setAgents]=useState<InvestigationAgent[]>([]);
   const [agentId,setAgentId]=useState("default-soc-agent");
@@ -196,6 +202,9 @@ export default function InvestigatorWorkspace(){
   const [savingLearning,setSavingLearning]=useState(false);
   const [learningDraft,setLearningDraft]=useState<InvestigationLearningDraft|null>(null);
   const [copiedQueryId,setCopiedQueryId]=useState("");
+  const [bulkCloseOpen,setBulkCloseOpen]=useState(false);
+  const [bulkClosing,setBulkClosing]=useState(false);
+  const [bulkCloseNotification,setBulkCloseNotification]=useState<InvestigationClosureNotification|null>(null);
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const activeChatAgent=agents.find((agent)=>agent.id===(activeInvestigation?.agentId??agentId))??selectedAgent;
@@ -271,11 +280,28 @@ export default function InvestigatorWorkspace(){
   useEffect(()=>{void loadInvestigations();},[]);
 
   useEffect(()=>{
+    const notificationId=new URLSearchParams(window.location.search).get("notification");
+    const openNotification=(id:string)=>{
+      const notification=notifications.find((item)=>item.id===id);
+      if(!notification) return;
+      setBulkCloseNotification(notification);
+      setBulkCloseOpen(true);
+    };
+    if(notificationId) openNotification(notificationId);
+    function onNotification(event:Event){
+      const id=(event as CustomEvent<string>).detail;
+      if(typeof id==="string") openNotification(id);
+    }
+    window.addEventListener("splunk-bot-open-notification",onNotification);
+    return ()=>window.removeEventListener("splunk-bot-open-notification",onNotification);
+  },[notifications]);
+
+  useEffect(()=>{
     setEventDetailsOpen(false);
   },[selectedEvent?.id]);
 
   useEffect(()=>{
-    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen&&!closureReviewOpen&&!learningReviewOpen) return;
+    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen&&!closureReviewOpen&&!learningReviewOpen&&!bulkCloseOpen) return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
     function onKeyDown(event:KeyboardEvent){
@@ -284,6 +310,7 @@ export default function InvestigatorWorkspace(){
         setScenarioDialogOpen(false);
         setIntakeOpen(false);
         setReportConfirmOpen(false);
+        setBulkCloseOpen(false);
         if(!savingClosure&&!learningDraftLoading&&!savingLearning){
           setClosureReviewOpen(false);
           setLearningReviewOpen(false);
@@ -295,7 +322,7 @@ export default function InvestigatorWorkspace(){
       document.body.style.overflow=previous;
       window.removeEventListener("keydown",onKeyDown);
     };
-  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen,closureReviewOpen,learningReviewOpen,savingClosure,learningDraftLoading,savingLearning]);
+  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen,closureReviewOpen,learningReviewOpen,bulkCloseOpen,savingClosure,learningDraftLoading,savingLearning]);
 
   function chooseAgent(id:string){
     setAgentId(id);
@@ -759,7 +786,7 @@ export default function InvestigatorWorkspace(){
           }),
         },
       );
-      const data=await response.json() as {investigation?:InvestigationRecord;error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to save the learning pattern.");
       setActiveInvestigation(data.investigation);
       setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
@@ -767,6 +794,20 @@ export default function InvestigatorWorkspace(){
       setClosureReviewOpen(false);
       setLearningReviewOpen(false);
       setLearningDraft(null);
+      if(data.matchingInvestigations?.length){
+        const notification:InvestigationClosureNotification={
+          id:crypto.randomUUID(),
+          createdAt:new Date().toISOString(),
+          sourceInvestigationId:data.investigation.id,
+          sourceTitle:data.investigation.title,
+          classification:learningDraft.classification,
+          reason:closureReason.trim(),
+          matches:data.matchingInvestigations,
+        };
+        addNotification(notification);
+        setBulkCloseNotification(notification);
+        setBulkCloseOpen(true);
+      }
     }catch(reasonValue){
       setError(reasonValue instanceof Error?reasonValue.message:"Failed to save the learning pattern.");
     }finally{
@@ -821,6 +862,37 @@ export default function InvestigatorWorkspace(){
     }
   }
 
+  async function closeMatchingInvestigations(){
+    if(!bulkCloseNotification||bulkClosing) return;
+    setBulkClosing(true);
+    setError("");
+    try{
+      const response=await fetch("/api/investigations/bulk-close",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          sourceInvestigationId:bulkCloseNotification.sourceInvestigationId,
+          investigationIds:bulkCloseNotification.matches.map((match)=>match.id),
+          classification:bulkCloseNotification.classification,
+          reason:bulkCloseNotification.reason,
+        }),
+      });
+      const data=await response.json() as {closedIds?:string[];error?:string};
+      if(!response.ok) throw new Error(data.error??"Failed to close matching investigations.");
+      const closedIds=new Set(data.closedIds??[]);
+      setInvestigations((current)=>current.map((item)=>closedIds.has(item.id)
+        ?{...item,status:"closed",closureClassification:bulkCloseNotification.classification,closureReason:bulkCloseNotification.reason,updatedAt:new Date().toISOString()}
+        :item));
+      dismissNotification(bulkCloseNotification.id);
+      setBulkCloseOpen(false);
+      setBulkCloseNotification(null);
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to close matching investigations.");
+    }finally{
+      setBulkClosing(false);
+    }
+  }
+
   async function copySplQuery(search:SearchAudit){
     try{
       if(navigator.clipboard?.writeText){
@@ -852,6 +924,7 @@ export default function InvestigatorWorkspace(){
     setReportConfirmOpen(false);
     setClosureReviewOpen(false);
     setLearningReviewOpen(false);
+    setBulkCloseOpen(false);
     setLearningDraft(null);
     setActiveInvestigation(null);
     setQuestions([]);
@@ -1313,6 +1386,41 @@ export default function InvestigatorWorkspace(){
         <div className="closure-review-footer learning-review-footer">
           <button className="secondary-button" type="button" onClick={()=>{setLearningReviewOpen(false);setClosureReviewOpen(true);}} disabled={savingLearning}>Back to decision</button>
           <button className="primary-button" type="button" onClick={()=>void confirmLearning()} disabled={savingLearning||!learningDraft.title.trim()||!learningDraft.detectionFamily.trim()||learningDraft.reason.trim().length<12}>{savingLearning?"Saving learning…":"Confirm & save learning"}</button>
+        </div>
+      </section>
+    </div>}
+
+    {bulkCloseOpen&&bulkCloseNotification&&<div className="modal-backdrop bulk-close-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!bulkClosing) setBulkCloseOpen(false);}}>
+      <section className="panel modal-dialog bulk-close-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-close-title" onMouseDown={(event)=>event.stopPropagation()}>
+        <div className="bulk-close-header">
+          <div>
+            <div className="eyebrow">DUPLICATE INVESTIGATIONS FOUND</div>
+            <h2 id="bulk-close-title">Close the matching investigations too?</h2>
+            <p>After closing <strong>{bulkCloseNotification.sourceTitle}</strong>, the app found <strong>{bulkCloseNotification.matches.length}</strong> other ongoing investigations with the same event details apart from their timestamps.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing} aria-label="Close">×</button>
+        </div>
+
+        <div className="bulk-close-decision">
+          <div><span className="label">Same decision</span><strong>{decisionLabel(bulkCloseNotification.classification)}</strong></div>
+          <div><span className="label">Reason</span><span>{bulkCloseNotification.reason}</span></div>
+        </div>
+
+        <div className="bulk-close-match-list" aria-label="Matching ongoing investigations">
+          {bulkCloseNotification.matches.map((match)=><div className="bulk-close-match" key={match.id}>
+            <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)}</small></div>
+            <span className="investigation-status ongoing">ongoing</span>
+          </div>)}
+        </div>
+
+        <div className="bulk-close-note">
+          <ShieldCheckIcon size={19} weight="duotone"/>
+          <span>This bulk action closes the matching Splunk Bot investigations with the same analyst-confirmed settings. You can review them individually instead. Splunk AME status is not changed by this local action.</span>
+        </div>
+
+        <div className="closure-review-footer">
+          <button className="secondary-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing}>Not now</button>
+          <button className="primary-button" type="button" onClick={()=>void closeMatchingInvestigations()} disabled={bulkClosing}>{bulkClosing?"Closing matches…":`Close all ${bulkCloseNotification.matches.length} matches`}</button>
         </div>
       </section>
     </div>}
