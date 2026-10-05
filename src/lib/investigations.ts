@@ -58,6 +58,8 @@ function mapInvestigation(row:Row):InvestigationRecord{
     searches,
     skills,
     budget,
+    closureClassification:row.closure_classification==null?null:String(row.closure_classification) as InvestigationRecord["closureClassification"],
+    closureReason:String(row.closure_reason??""),
     createdAt:new Date(String(row.created_at)).toISOString(),
     updatedAt:new Date(String(row.updated_at)).toISOString(),
   };
@@ -147,6 +149,8 @@ export async function updateInvestigation(id:string,input:{
   searches?:SearchAudit[];
   skills?:string[];
   budget?:AgentBudget|null;
+  closureClassification?:InvestigationRecord["closureClassification"];
+  closureReason?:string;
 }):Promise<InvestigationRecord>{
   await ensureSchema();
   if(input.status&&input.status!=="ongoing"&&input.status!=="closed") throw new Error("Investigation status is invalid.");
@@ -159,6 +163,8 @@ export async function updateInvestigation(id:string,input:{
             searches=COALESCE($6::jsonb,searches),
             skills=COALESCE($7::jsonb,skills),
             budget=COALESCE($8::jsonb,budget),
+            closure_classification=COALESCE($9,closure_classification),
+            closure_reason=COALESCE($10,closure_reason),
             updated_at=NOW()
       WHERE id=$1
       RETURNING *`,
@@ -171,6 +177,8 @@ export async function updateInvestigation(id:string,input:{
       input.searches===undefined?null:JSON.stringify(input.searches),
       input.skills===undefined?null:JSON.stringify(input.skills),
       input.budget===undefined?null:JSON.stringify(input.budget),
+      input.closureClassification??null,
+      input.closureReason===undefined?null:input.closureReason,
     ],
   );
   if(!rows[0]) throw new Error("Investigation not found.");

@@ -3,12 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
+import { ShieldCheckIcon } from "@phosphor-icons/react";
 import { useAppState } from "@/components/app-shell";
 import type { InvestigationAgent } from "@/lib/agents";
 import type {
   AgentBudget,
   AmeEvent,
   ChatMessage,
+  ClosureSuggestion,
+  DecisionClassification,
   IncidentContext,
   InvestigationQuestion,
   InvestigationRecord,
@@ -50,6 +53,10 @@ function formatDate(value:string|null|undefined){
   const date=new Date(value);
   if(Number.isNaN(date.getTime())) return value;
   return date.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"});
+}
+
+function decisionLabel(value:DecisionClassification):string{
+  return value==="false_positive"?"False positive":value.charAt(0).toUpperCase()+value.slice(1);
 }
 
 function eventContext(event:AmeEvent):Record<string,unknown>{
@@ -130,6 +137,13 @@ export default function InvestigatorWorkspace(){
   const [deleting,setDeleting]=useState(false);
   const [reportConfirmOpen,setReportConfirmOpen]=useState(false);
   const [generatingReport,setGeneratingReport]=useState(false);
+  const [closureReviewOpen,setClosureReviewOpen]=useState(false);
+  const [closureSuggestionLoading,setClosureSuggestionLoading]=useState(false);
+  const [savingClosure,setSavingClosure]=useState(false);
+  const [closureClassification,setClosureClassification]=useState<DecisionClassification>("medium");
+  const [closureReason,setClosureReason]=useState("");
+  const [closureConfidence,setClosureConfidence]=useState(0);
+  const [closureDetectionFamily,setClosureDetectionFamily]=useState("General");
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const ongoing=useMemo(
@@ -173,7 +187,7 @@ export default function InvestigatorWorkspace(){
   },[selectedEvent?.id]);
 
   useEffect(()=>{
-    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen) return;
+    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen&&!closureReviewOpen) return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
     function onKeyDown(event:KeyboardEvent){
@@ -182,6 +196,7 @@ export default function InvestigatorWorkspace(){
         setScenarioDialogOpen(false);
         setIntakeOpen(false);
         setReportConfirmOpen(false);
+        if(!savingClosure) setClosureReviewOpen(false);
       }
     }
     window.addEventListener("keydown",onKeyDown);
@@ -189,7 +204,7 @@ export default function InvestigatorWorkspace(){
       document.body.style.overflow=previous;
       window.removeEventListener("keydown",onKeyDown);
     };
-  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen]);
+  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen,closureReviewOpen,savingClosure]);
 
   function chooseAgent(id:string){
     setAgentId(id);
@@ -524,6 +539,69 @@ export default function InvestigatorWorkspace(){
     await persistInvestigation(updated);
   }
 
+  async function openClosureReview(record:InvestigationRecord|null=activeInvestigation){
+    if(!record||closureSuggestionLoading) return;
+    const urgency=String(record.eventContext?.urgency??"").toLowerCase();
+    const initial:DecisionClassification=record.closureClassification??(
+      urgency==="critical"||urgency==="high"||urgency==="medium"||urgency==="low"
+        ?urgency
+        :"medium"
+    );
+    setClosureClassification(initial);
+    setClosureReason(record.closureReason||"");
+    setClosureConfidence(0);
+    setClosureDetectionFamily("General");
+    setClosureReviewOpen(true);
+    setClosureSuggestionLoading(true);
+    setError("");
+    try{
+      const response=await fetch(
+        "/api/investigations/"+encodeURIComponent(record.id)+"/closure-suggestion",
+        {method:"POST"},
+      );
+      const data=await response.json() as {suggestion?:ClosureSuggestion;error?:string};
+      if(!response.ok||!data.suggestion) throw new Error(data.error??"Failed to prepare an AI closure suggestion.");
+      setClosureClassification(data.suggestion.classification);
+      setClosureReason(data.suggestion.reason);
+      setClosureConfidence(data.suggestion.confidence);
+      setClosureDetectionFamily(data.suggestion.detectionFamily);
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to prepare an AI closure suggestion.");
+    }finally{
+      setClosureSuggestionLoading(false);
+    }
+  }
+
+  async function confirmClosure(){
+    if(!activeInvestigation||savingClosure) return;
+    const reason=closureReason.trim();
+    if(reason.length<12){
+      setError("Provide a short reason of at least 12 characters before closing.");
+      return;
+    }
+    setSavingClosure(true);
+    setError("");
+    try{
+      const response=await fetch(
+        "/api/investigations/"+encodeURIComponent(activeInvestigation.id)+"/close",
+        {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({classification:closureClassification,reason}),
+        },
+      );
+      const data=await response.json() as {investigation?:InvestigationRecord;error?:string};
+      if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to close the investigation.");
+      setActiveInvestigation(data.investigation);
+      setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
+      setClosureReviewOpen(false);
+    }catch(reasonValue){
+      setError(reasonValue instanceof Error?reasonValue.message:"Failed to close the investigation.");
+    }finally{
+      setSavingClosure(false);
+    }
+  }
+
   async function generateIncidentReport(){
     if(!activeInvestigation||generatingReport) return;
     setGeneratingReport(true);
@@ -540,6 +618,7 @@ export default function InvestigatorWorkspace(){
       setActiveInvestigation(data.investigation);
       setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
       setReportConfirmOpen(false);
+      await openClosureReview(data.investigation);
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to generate the incident report.");
     }finally{
@@ -571,11 +650,12 @@ export default function InvestigatorWorkspace(){
   }
 
   function closeDialogs(){
-    if(sending||deleting||generatingReport) return;
+    if(sending||deleting||generatingReport||savingClosure) return;
     setDialogOpen(false);
     setScenarioDialogOpen(false);
     setIntakeOpen(false);
     setReportConfirmOpen(false);
+    setClosureReviewOpen(false);
     setActiveInvestigation(null);
     setQuestions([]);
   }
@@ -787,7 +867,7 @@ export default function InvestigatorWorkspace(){
                 onClick={()=>setReportConfirmOpen(true)}
                 disabled={sending||generatingReport}
               >{activeInvestigation.report?"Regenerate report":"Generate report"}</button>}
-              <button className="secondary-button" type="button" onClick={()=>void setInvestigationStatus(activeInvestigation.status==="ongoing"?"closed":"ongoing")}>{activeInvestigation.status==="ongoing"?"Close investigation":"Reopen investigation"}</button>
+              <button className="secondary-button" type="button" onClick={()=>activeInvestigation.status==="ongoing"?void openClosureReview():void setInvestigationStatus("ongoing")} disabled={closureSuggestionLoading}>{activeInvestigation.status==="ongoing"?(closureSuggestionLoading?"Preparing review…":"Close investigation"):"Reopen investigation"}</button>
               <button className="secondary-button" type="button" onClick={()=>void deleteActiveInvestigation()} disabled={deleting}>{deleting?"Deleting…":"Delete investigation"}</button>
               <button className="icon-button" type="button" onClick={closeDialogs} aria-label="Close">×</button>
             </div>
@@ -845,7 +925,7 @@ export default function InvestigatorWorkspace(){
           <div><div className="eyebrow">FINALIZE INVESTIGATION</div><h2 id="report-confirm-title">Is this investigation complete?</h2></div>
           <button className="icon-button" type="button" onClick={()=>setReportConfirmOpen(false)} disabled={generatingReport} aria-label="Close">×</button>
         </div>
-        <p className="modal-intro">Please confirm that you have finished providing information and answering the agent’s questions. The AI will summarize the current conversation and evidence into an incident report, then mark this investigation as closed.</p>
+        <p className="modal-intro">Please confirm that you have finished providing information and answering the agent’s questions. The AI will summarize the current conversation and evidence into an incident report. You will review the final classification separately before closure.</p>
         <div className="report-confirm-summary">
           <div><span className="label">Investigation</span><strong>{activeInvestigation.title}</strong></div>
           <div><span className="label">Conversation</span><strong>{activeInvestigation.messages.length} messages</strong></div>
@@ -854,6 +934,52 @@ export default function InvestigatorWorkspace(){
         <div className="page-heading-actions report-confirm-actions">
           <button className="secondary-button" type="button" onClick={()=>setReportConfirmOpen(false)} disabled={generatingReport}>Continue investigation</button>
           <button className="primary-button" type="button" onClick={()=>void generateIncidentReport()} disabled={generatingReport}>{generatingReport?"Generating report…":"Yes, generate report"}</button>
+        </div>
+      </section>
+    </div>}
+
+    {closureReviewOpen&&activeInvestigation&&<div className="modal-backdrop closure-review-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!savingClosure) setClosureReviewOpen(false);}}>
+      <section className="panel modal-dialog closure-review-dialog" role="dialog" aria-modal="true" aria-labelledby="closure-review-title" onMouseDown={(event)=>event.stopPropagation()}>
+        <div className="closure-review-header">
+          <div>
+            <div className="eyebrow">ANALYST DECISION</div>
+            <h2 id="closure-review-title">Close investigation and capture the learning</h2>
+            <p>Review the AI suggestion, adjust it if needed, and confirm the outcome that future investigations may use as guidance.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={()=>setClosureReviewOpen(false)} disabled={savingClosure} aria-label="Close">×</button>
+        </div>
+
+        {error&&<div className="error-box modal-error" role="alert">{error}</div>}
+
+        <div className="closure-ai-summary">
+          <span className="closure-ai-icon">✦</span>
+          <div><span className="label">AI-PREPARED REVIEW</span><strong>{closureSuggestionLoading?"Reviewing the investigation record…":closureDetectionFamily}</strong><small>{closureSuggestionLoading?"The form remains editable while the suggestion is prepared.":`${Math.round(closureConfidence*100)}% confidence · analyst confirmation required`}</small></div>
+        </div>
+
+        <fieldset className="closure-decision-fieldset" disabled={savingClosure}>
+          <legend>Final severity or disposition</legend>
+          <div className="closure-decision-options">
+            {(["false_positive","critical","high","medium","low"] as DecisionClassification[]).map((item)=><label className={closureClassification===item?"selected "+item:item} key={item}>
+              <input type="radio" name="closure-classification" value={item} checked={closureClassification===item} onChange={()=>setClosureClassification(item)}/>
+              <span className="closure-radio-mark"/><span>{decisionLabel(item)}</span>
+            </label>)}
+          </div>
+        </fieldset>
+
+        <label className="closure-reason-field">
+          <span className="label">Short decision reason</span>
+          <textarea rows={5} maxLength={1200} value={closureReason} onChange={(event)=>setClosureReason(event.target.value)} placeholder="Explain the evidence and context that support this decision." disabled={savingClosure}/>
+          <small>{closureReason.length} / 1200 · This analyst-confirmed explanation becomes the source reasoning for the learning pattern.</small>
+        </label>
+
+        <div className="closure-governance-note">
+          <ShieldCheckIcon size={20} weight="duotone"/>
+          <div><strong>Guidance, not an automatic verdict</strong><span>The AI will generalize this decision into a scoped pattern with supporting signals and exclusions. Future agents must verify current evidence, show the match to the analyst, and can never auto-close a ticket.</span></div>
+        </div>
+
+        <div className="closure-review-footer">
+          <button className="secondary-button" type="button" onClick={()=>setClosureReviewOpen(false)} disabled={savingClosure}>Continue investigation</button>
+          <button className="primary-button" type="button" onClick={()=>void confirmClosure()} disabled={savingClosure||closureSuggestionLoading||closureReason.trim().length<12}>{savingClosure?"Creating learning pattern…":"Close & create learning"}</button>
         </div>
       </section>
     </div>}

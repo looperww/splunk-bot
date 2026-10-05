@@ -240,6 +240,42 @@ async function createSchema():Promise<void>{
       CREATE INDEX IF NOT EXISTS investigations_connection_idx
         ON investigations(connection_id, updated_at DESC);
 
+      ALTER TABLE investigations
+        ADD COLUMN IF NOT EXISTS closure_classification TEXT,
+        ADD COLUMN IF NOT EXISTS closure_reason TEXT NOT NULL DEFAULT '';
+
+      CREATE TABLE IF NOT EXISTS investigation_learnings (
+        id TEXT PRIMARY KEY,
+        connection_id TEXT REFERENCES splunk_connections(id) ON DELETE CASCADE,
+        source_investigation_id TEXT NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+        source_event_id TEXT,
+        title TEXT NOT NULL,
+        detection_family TEXT NOT NULL DEFAULT 'General',
+        classification TEXT NOT NULL CHECK (classification IN ('false_positive','critical','high','medium','low')),
+        base_severity TEXT NOT NULL DEFAULT 'low' CHECK (base_severity IN ('critical','high','medium','low')),
+        reason TEXT NOT NULL,
+        scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+        supporting_signals JSONB NOT NULL DEFAULT '[]'::jsonb,
+        exclusions JSONB NOT NULL DEFAULT '[]'::jsonb,
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','review','disabled')),
+        confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+        support_count INTEGER NOT NULL DEFAULT 1,
+        accepted_count INTEGER NOT NULL DEFAULT 0,
+        overridden_count INTEGER NOT NULL DEFAULT 0,
+        owner_name TEXT NOT NULL DEFAULT '',
+        model_name TEXT NOT NULL DEFAULT '',
+        last_used_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE(source_investigation_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS investigation_learnings_connection_idx
+        ON investigation_learnings(connection_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS investigation_learnings_family_idx
+        ON investigation_learnings(detection_family, status, updated_at DESC);
+
       CREATE TABLE IF NOT EXISTS investigation_agents (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,

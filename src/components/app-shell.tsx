@@ -10,6 +10,7 @@ import {
   DatabaseIcon,
   GearIcon,
   HouseIcon,
+  LightbulbIcon,
   LightningIcon,
   MagnifyingGlassIcon,
   RobotIcon,
@@ -32,7 +33,7 @@ type AppState={
 
 const AppStateContext=createContext<AppState|null>(null);
 
-const navigation:{group:string;items:{href:string;label:string;icon:Icon}[]}[]=[
+const navigation:{group:string;items:{href:string;label:string;icon:Icon;nested?:boolean}[]}[]=[
   {group:"Operations",items:[
     {href:"/dashboard",label:"Investigations",icon:HouseIcon},
     {href:"/events",label:"Events",icon:LightningIcon},
@@ -41,6 +42,7 @@ const navigation:{group:string;items:{href:string;label:string;icon:Icon}[]}[]=[
   ]},
   {group:"Intelligence",items:[
     {href:"/knowledge",label:"Knowledge",icon:DatabaseIcon},
+    {href:"/knowledge/learning",label:"Decision Learning",icon:LightbulbIcon,nested:true},
     {href:"/skills",label:"Skills",icon:BooksIcon},
     {href:"/agents",label:"Agents",icon:RobotIcon},
   ]},
@@ -178,9 +180,11 @@ export default function AppShell({children}:{children:React.ReactNode}){
           {navigation.map((section)=><div className="sidebar-section" key={section.group}>
             <span className="sidebar-section-label">{section.group}</span>
             {section.items.map((item)=>{
-              const active=pathname===item.href||pathname.startsWith(item.href+"/");
+              const active=pathname===item.href||(
+                item.href!=="/knowledge"&&pathname.startsWith(item.href+"/")
+              );
               const NavIcon=item.icon;
-              return <Link href={item.href} key={item.href} className={"sidebar-link "+(active?"active":"")}>
+              return <Link href={item.href} key={item.href} className={"sidebar-link "+(item.nested?"nested ":"")+(active?"active":"")}>
                 <span className="nav-mark"><NavIcon size={18} weight={active?"fill":"regular"}/></span>
                 <span>{item.label}</span>
               </Link>;
