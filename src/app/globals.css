@@ -144,7 +144,7 @@ code,pre{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}.deta
 .incident-context-details summary{cursor:pointer;color:var(--accent);font-size:10px}
 .incident-context-details pre{margin:8px 0 0;max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:10px;line-height:1.45;color:#405568}
 .incident-intake-hint{display:flex;align-items:center;gap:12px;padding:14px 16px;margin-bottom:14px;color:var(--muted);font-size:11px}.incident-intake-hint strong{color:var(--accent)}
-.modal-backdrop{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;overflow:auto;padding:24px;background:rgba(20,35,48,.46);backdrop-filter:blur(2px)}.modal-dialog{width:min(100%,900px);max-height:calc(100vh - 48px);overflow:auto;margin:0;box-shadow:0 24px 70px rgba(20,35,48,.25)}.scenario-dialog{width:min(100%,1120px)}.intake-dialog{width:min(100%,860px)}.modal-error{margin:0 0 12px}.modal-dialog>.panel-heading{position:sticky;top:-1px;z-index:1;background:var(--panel);padding-bottom:13px;margin-bottom:0}
+.modal-backdrop{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;overflow:auto;padding:24px;background:rgba(20,35,48,.46);backdrop-filter:blur(2px)}.modal-dialog{width:min(100%,900px);max-height:calc(100vh - 48px);overflow:auto;margin:0;box-shadow:0 24px 70px rgba(20,35,48,.25)}.scenario-dialog{width:min(100%,1120px)}.intake-dialog{width:min(100%,860px)}.report-confirm-dialog{width:min(100%,620px);padding:18px}.report-confirm-summary{display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:9px;margin:18px 0}.report-confirm-summary>div{display:grid;gap:5px;border:1px solid #dce7ee;background:#f8fbfd;border-radius:9px;padding:10px;min-width:0}.report-confirm-summary strong{font-size:11px;line-height:1.4;overflow-wrap:anywhere}.report-confirm-actions{justify-content:flex-end;border-top:1px solid var(--border);padding-top:14px}.modal-error{margin:0 0 12px}.modal-dialog>.panel-heading{position:sticky;top:-1px;z-index:1;background:var(--panel);padding-bottom:13px;margin-bottom:0}
 
 @media(max-width:1100px){
   .incident-scenario-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -172,6 +172,8 @@ code,pre{font-family:"SFMono-Regular",Consolas,"Liberation Mono",monospace}.deta
   .investigation-dialog{max-height:calc(100vh - 20px)}
   .investigation-dialog-header{padding:16px}
   .investigation-chat-column,.investigation-report-column{padding:14px}
+  .report-confirm-summary{grid-template-columns:1fr}
+  .report-confirm-actions{align-items:stretch;flex-direction:column}
 }
 
 
