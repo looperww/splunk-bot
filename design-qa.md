@@ -1,51 +1,60 @@
-# Design QA
+# Design QA — Decision Learning
 
-- Source visual truth path: `/Users/wang/.codex/generated_images/01a0c93d-f392-7b50-b50e-55795e33ee03/exec-bccc1f3a-44b0-4bf7-bf69-b86de0a229c3.png`
-- Implementation screenshot path: `browser-capture://iab/tab-1/dashboard`, `browser-capture://iab/tab-1/events`, `browser-capture://iab/tab-1/settings`, and `browser-capture://iab/tab-1/dashboard-mobile`
-- Viewports: 901 × 951 CSS px for desktop/compact desktop; 390 × 844 CSS px for mobile
-- Source dimensions: 1487 × 1058 px at 1×
-- Implementation dimensions: 901 × 951 px and 390 × 844 px at 1×
-- Density normalization: source was compared proportionally at 0.606× for the 901 px-wide compact-desktop capture; mobile was compared by hierarchy, density, and interaction preservation rather than pixel position.
-- State: authenticated workspace preview with empty connection/data states; sign-in screen also inspected in the normal unauthenticated state.
+- Source visual truth path: `/Users/wang/.codex/generated_images/01a0c93d-f392-7b50-b50e-55795e33ee03/exec-9f0bd066-606f-4ed8-8e1c-c8e4dd2db152.png`
+- Implementation screenshot path: `/tmp/splunk-bot-learning.png`
+- Combined comparison path: `/tmp/splunk-bot-learning-comparison.png`
+- Viewport: 1440 × 900 CSS px, desktop, device density 1×
+- Source dimensions: 1487 × 1058 px
+- Implementation dimensions: 1440 × 900 px
+- Density normalization: source was proportionally resized to 900 px high and placed beside the 1440 × 900 implementation capture. No device or browser chrome was included.
+- State: authenticated Decision Learning workspace with representative analyst-confirmed patterns; first active Authentication pattern selected.
+
+## Findings
+
+No actionable P0, P1, or P2 differences remain.
+
+- Typography: the implementation preserves the reference's compact enterprise hierarchy, high-weight page and panel titles, restrained uppercase labels, readable body copy, and table truncation. The existing product font stack is retained for consistency with the rest of Splunk Bot.
+- Spacing and layout rhythm: the five-step lifecycle, detection-family rail, pattern catalog, and guidance detail use the same three-region composition and dense spacing as the reference. The implementation intentionally adapts below 1350, 1050, and 680 px rather than clipping persistent controls.
+- Colors and tokens: the light gray workspace, white surfaces, blue navigation/selection, green false-positive and active states, amber review state, subtle dividers, and low-elevation shadows align with the selected direction and existing app tokens.
+- Image and icon fidelity: the reference contains no product photography or custom raster artwork. Phosphor icons are used consistently for the standard UI symbols; no raster placeholder or hand-drawn SVG substitute is present.
+- Copy and content: lifecycle labels, analyst-confirmed reasoning, required signals, exclusions, confidence, owner, provenance, and governance actions preserve the selected concept's intent. App-specific wording makes explicit that patterns are guidance rather than evidence and cannot auto-close an investigation.
 
 ## Full-view comparison evidence
 
-The implementation preserves the chosen direction's light SOC console, strong blue active navigation, global search, compact operational tables, restrained status colors, and large evidence-oriented workspaces. The existing Splunk Bot workflows and authentication boundary remain intact.
-
-The dashboard, events, settings, sign-in, and compact mobile dashboard were inspected in the Codex in-app browser. The console contained no application errors; the only warnings were expected Next.js Fast Refresh reload notices caused by editing shared files during development.
+The normalized side-by-side comparison shows the same dominant information architecture: persistent navigation, global search, compact lifecycle strip, family navigation, searchable/filterable pattern inventory, and a detailed selected-pattern surface. The implementation uses the existing Splunk Bot shell and brand mark rather than imitating the concept's Splunk product navigation, which is an intentional product constraint.
 
 ## Focused-region comparison evidence
 
-- Navigation: grouped into Operations, Intelligence, and System, with a consistent Phosphor icon family and a high-contrast selected state.
-- Dense lists: events and alerts now have persistent column headings, quieter row dividers, severity/status badges, and full-width expandable detail surfaces.
-- Settings: connection and AI credential forms reflow from three fields to two-plus-one and then one column without clipping.
-- Investigation dialog: the existing required modal workflow now uses a near-full-screen split workspace with readable conversation, scope, report, and evidence columns.
-- Mobile: navigation becomes a fixed icon rail at the bottom, search remains available, content becomes one column, and dialogs become full-height workspaces.
+- Lifecycle strip: all five stages and directional progression are visible at desktop width; the sequence becomes a vertical readable strip on mobile.
+- Pattern catalog: search, status tabs, selected-row treatment, classification badge, confidence, and governance status remain visible without horizontal scrolling at the reference viewport.
+- Guidance detail: classification, base severity, confidence, reasoning, scope, supporting signals, exclusions, quality counts, owner, source investigation, and edit/review/disable actions are legible in one scrollable panel.
+- Closure dialog: the rendered desktop interaction shows the AI recommendation, editable severity/false-positive options, editable reason, confidence/family context, explicit governance notice, and distinct continue versus confirm actions.
 
 ## Primary interactions tested
 
-- Global event search accepted a query and navigated to `/events?search=critical%20owner`; the events-page filter initialized from the URL.
-- Primary navigation destinations rendered through the shared shell.
-- Desktop, compact-desktop, and mobile responsive states were inspected.
-- Authentication behavior was restored after visual preview and remains enforced by the application proxy and session check.
+- Opened an ongoing alert investigation and invoked **Close investigation**.
+- Verified the closure dialog preselected **False positive** and prefilled a reason while keeping both editable.
+- Verified all five disposition options, the reason field, continue action, and guarded **Close & create learning** action are present.
+- Verified Learning search, family selection, status filters, row selection, edit, review, disable, and activate controls are rendered as interactive controls.
+- Checked the in-app browser console. There were no application errors; only expected Next.js Fast Refresh warnings caused by source edits during development.
+- Inspected desktop and mobile responsive states. The temporary preview fixtures and authentication bypass used only for visual verification were removed before the final build.
 
 ## Comparison history
 
-1. P1: settings connection and API-key fields clipped beyond the panel at a 901 px viewport.
-   - Fix: introduced a two-plus-one responsive form grid below 1050 px and a single-column grid on mobile.
-   - Post-fix evidence: the settings capture shows all fields and actions contained within each panel.
-2. P1: the events toolbar overflowed horizontally at compact-desktop width.
-   - Fix: converted the toolbar to stacked search/sort rows with a three-column pager footer below 1050 px.
-   - Post-fix evidence: the events capture shows the search, sort, page count, Previous, and Next controls fully visible.
-3. P2: a standalone context icon remained in the top bar after its label collapsed.
-   - Fix: hide the whole context group below 1200 px and let search use the available width.
-   - Post-fix evidence: compact-desktop captures show a centered, uninterrupted search field.
-4. P2: the desktop sidebar consumed too much horizontal space relative to the selected reference.
-   - Fix: reduced the full-width rail to 220 px and collapse it to an icon rail below 1050 px.
-   - Post-fix evidence: compact and mobile captures preserve more space for operational content.
+1. Initial implementation comparison found no actionable P0/P1/P2 mismatch. The app-specific shell, reduced sample-row count, and scrollable detail panel are intentional runtime/data constraints rather than design regressions.
 
-## Remaining polish
+## Follow-up polish
 
-- P3: production data density may expose unusually long customer-specific titles or field values; the UI uses wrapping, truncation, and scroll containers, but those cases should be reviewed with representative live data after deployment.
+- P3: once representative production decisions accumulate, review unusually long detection names and unusually large signal lists to confirm the current truncation and internal scrolling remain comfortable.
+- P3: accepted/overridden counters are present in the governed schema and UI; a later workflow can increment them when analysts explicitly accept or override a suggested pattern in a future investigation.
+
+## Implementation checklist
+
+- [x] AI-assisted closure suggestion is editable by the analyst.
+- [x] Confirmed closure produces a scoped, provenance-bearing learning pattern.
+- [x] Active patterns are added to future AI investigation context as guidance, never evidence.
+- [x] Learning patterns can be edited, moved to review, disabled, and reactivated.
+- [x] Desktop and mobile layouts preserve the primary task and persistent controls.
+- [x] Typecheck and production build pass.
 
 final result: passed

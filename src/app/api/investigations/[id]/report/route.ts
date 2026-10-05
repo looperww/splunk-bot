@@ -23,7 +23,7 @@ export async function POST(
       ?await getAgent(investigation.agentId)
       :undefined;
     const report=await generateInvestigationReport(investigation,agent??undefined);
-    const updated=await updateInvestigation(id,{report,status:"closed"});
+    const updated=await updateInvestigation(id,{report});
     return NextResponse.json({investigation:updated});
   }catch(error){
     return NextResponse.json(

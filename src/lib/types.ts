@@ -75,6 +75,40 @@ export type IncidentContext = {
 
 export type InvestigationKind="alert"|"incident";
 export type InvestigationStatus="ongoing"|"closed";
+export type DecisionClassification="false_positive"|"critical"|"high"|"medium"|"low";
+export type LearningStatus="active"|"review"|"disabled";
+
+export type ClosureSuggestion={
+  classification:DecisionClassification;
+  reason:string;
+  confidence:number;
+  detectionFamily:string;
+};
+
+export type InvestigationLearning={
+  id:string;
+  connectionId:string|null;
+  sourceInvestigationId:string;
+  sourceEventId:string|null;
+  title:string;
+  detectionFamily:string;
+  classification:DecisionClassification;
+  baseSeverity:"critical"|"high"|"medium"|"low";
+  reason:string;
+  scope:Record<string,unknown>;
+  supportingSignals:string[];
+  exclusions:string[];
+  status:LearningStatus;
+  confidence:number;
+  supportCount:number;
+  acceptedCount:number;
+  overriddenCount:number;
+  owner:string;
+  model:string;
+  createdAt:string;
+  updatedAt:string;
+  lastUsedAt:string|null;
+};
 
 export type InvestigationRecord={
   id:string;
@@ -94,6 +128,8 @@ export type InvestigationRecord={
   searches:SearchAudit[];
   skills:string[];
   budget:AgentBudget|null;
+  closureClassification:DecisionClassification|null;
+  closureReason:string;
   createdAt:string;
   updatedAt:string;
 };
