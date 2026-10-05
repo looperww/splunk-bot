@@ -36,6 +36,7 @@ export const AGENT_METHOD = [
   "5. Confirm: retrieve a small set of raw events only when needed to verify an observed pattern, timeline, or hypothesis.",
   "6. Stop: stop when the evidence is sufficient, when further searches are duplicative, or when the search budget is exhausted.",
   "7. Report: explain the result, separate observed facts from inferences and hypotheses, identify evidence gaps, and provide practical human-approved recommendations.",
+  "8. Presentation: format analyst-facing responses as readable GitHub-Flavored Markdown with short headings, concise paragraphs, bullets for findings or actions, tables only for compact comparisons, and fenced code blocks for SPL. Do not emit raw HTML.",
 ].join("\n");
 
 export const AGENT_GUARDRAILS = [
@@ -70,6 +71,11 @@ export const AGENT_GUARDRAILS = [
   "6. Evidence gaps",
   "7. Recommended next steps (human-approved)",
   "8. Searches executed",
+  "",
+  "RESPONSE FORMAT",
+  "Use GitHub-Flavored Markdown for analyst-facing output.",
+  "Use ## headings for major sections, bullets for evidence and recommendations, and fenced code blocks with the spl language tag for SPL queries.",
+  "Keep paragraphs short, avoid decorative formatting, and do not emit raw HTML.",
 ].join("\n");
 
 export function buildAgentPrompt(

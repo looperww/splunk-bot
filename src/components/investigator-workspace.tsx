@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import Link from "next/link";
 import { ShieldCheckIcon } from "@phosphor-icons/react";
 import { useAppState } from "@/components/app-shell";
+import MarkdownMessage from "@/components/markdown-message";
 import type { InvestigationAgent } from "@/lib/agents";
 import type {
   AgentBudget,
@@ -881,7 +882,11 @@ export default function InvestigatorWorkspace(){
               <div className="investigation-chat-messages">
                 {activeInvestigation.messages.map((message,index)=><div key={message.id??String(index)} className={"message "+message.role}>
                   <div className="message-role">{message.role==="assistant"?(selectedAgent?.name??"SPLUNK BOT"):"YOU"}</div>
-                  <div className="message-content">{message.content}</div>
+                  <div className="message-content">
+                    {message.role==="assistant"
+                      ?<MarkdownMessage content={message.content}/>
+                      :message.content}
+                  </div>
                 </div>)}
                 {sending&&<div className="message assistant"><div className="message-role">{selectedAgent?.name??"SPLUNK BOT"}</div><div className="message-content">Investigating…</div></div>}
               </div>
