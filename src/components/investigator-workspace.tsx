@@ -50,6 +50,11 @@ type Scenario={
   }[];
 };
 
+type ChatModel={
+  id:string;
+  ownedBy?:string;
+};
+
 function formatDate(value:string|null|undefined){
   if(!value) return "Unknown time";
   const date=new Date(value);
@@ -92,6 +97,10 @@ function formatSplQuery(query:string):string{
 
 function decisionLabel(value:DecisionClassification):string{
   return value==="false_positive"?"False positive":value.charAt(0).toUpperCase()+value.slice(1);
+}
+
+function modelSupportsThinking(model:string):boolean{
+  return /^(gpt-5|o\d(?:-|$)|gpt-oss)/i.test(model.trim());
 }
 
 function eventContext(event:AmeEvent):Record<string,unknown>{
@@ -150,6 +159,9 @@ export default function InvestigatorWorkspace(){
   }=useAppState();
   const [agents,setAgents]=useState<InvestigationAgent[]>([]);
   const [agentId,setAgentId]=useState("default-soc-agent");
+  const [defaultAiModel,setDefaultAiModel]=useState("gpt-5.6-luna");
+  const [chatModels,setChatModels]=useState<ChatModel[]>([]);
+  const [chatModelsLoading,setChatModelsLoading]=useState(false);
   const [investigations,setInvestigations]=useState<InvestigationRecord[]>([]);
   const [eventId,setEventId]=useState("");
   const [fetchingEvent,setFetchingEvent]=useState(false);
@@ -186,6 +198,7 @@ export default function InvestigatorWorkspace(){
   const [copiedQueryId,setCopiedQueryId]=useState("");
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
+  const activeChatAgent=agents.find((agent)=>agent.id===(activeInvestigation?.agentId??agentId))??selectedAgent;
   const ongoing=useMemo(
     ()=>investigations.filter((item)=>item.status==="ongoing"),
     [investigations],
@@ -211,6 +224,37 @@ export default function InvestigatorWorkspace(){
         if(selected) setAgentId(selected.id);
       })
       .catch((reason)=>setError(reason instanceof Error?reason.message:"Failed to load agents."));
+  },[]);
+
+  useEffect(()=>{
+    void (async()=>{
+      try{
+        const response=await fetch("/api/settings/ai",{cache:"no-store"});
+        const data=await response.json() as {settings?:{provider?:string;model?:string}};
+        const configuredModel=String(data.settings?.model??"").trim();
+        if(configuredModel) setDefaultAiModel(configuredModel);
+        if(!response.ok||data.settings?.provider!=="openai"){
+          if(configuredModel) setChatModels([{id:configuredModel,ownedBy:"configured"}]);
+          return;
+        }
+        setChatModelsLoading(true);
+        const modelsResponse=await fetch("/api/settings/ai/models",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({provider:"openai"}),
+        });
+        const modelsData=await modelsResponse.json() as {models?:ChatModel[]};
+        if(modelsResponse.ok&&Array.isArray(modelsData.models)){
+          setChatModels(modelsData.models);
+        }else if(configuredModel){
+          setChatModels([{id:configuredModel,ownedBy:"configured"}]);
+        }
+      }catch{
+        // Chat controls can still use the configured model when model discovery is unavailable.
+      }finally{
+        setChatModelsLoading(false);
+      }
+    })();
   },[]);
 
   async function loadInvestigations(){
@@ -320,6 +364,8 @@ export default function InvestigatorWorkspace(){
           sourceEventId:input.sourceEventId,
           connectionId:selectedConnection.id,
           agentId,
+          aiModel:defaultAiModel,
+          thinkEnabled:false,
           eventContext:input.eventContext,
           incidentContext:input.incidentContext,
           messages:[welcome],
@@ -430,6 +476,8 @@ export default function InvestigatorWorkspace(){
           scenarioId:selectedScenario.id,
           values:scenarioValues,
           connectionId:selectedConnection.id,
+          aiModel:defaultAiModel,
+          thinkEnabled:false,
         }),
       });
       const data=await response.json() as {
@@ -465,9 +513,9 @@ export default function InvestigatorWorkspace(){
     }
   }
 
-  async function persistInvestigation(record:InvestigationRecord){
+  async function persistInvestigation(record:InvestigationRecord):Promise<boolean>{
     try{
-      await fetch("/api/investigations/"+encodeURIComponent(record.id),{
+      const response=await fetch("/api/investigations/"+encodeURIComponent(record.id),{
         method:"PATCH",
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
@@ -478,9 +526,31 @@ export default function InvestigatorWorkspace(){
           searches:record.searches,
           skills:record.skills,
           budget:record.budget,
+          aiModel:record.aiModel,
+          thinkEnabled:record.thinkEnabled,
         }),
       });
-    }catch{}
+      return response.ok;
+    }catch{return false;}
+  }
+
+  async function updateChatSettings(update:Partial<Pick<InvestigationRecord,"agentId"|"aiModel"|"thinkEnabled">>){
+    if(!activeInvestigation) return;
+    const updated={
+      ...activeInvestigation,
+      ...update,
+      updatedAt:new Date().toISOString(),
+    };
+    setActiveInvestigation(updated);
+    setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+    if(!await persistInvestigation(updated)){
+      setError("The chat settings could not be saved. Please try again.");
+    }
+  }
+
+  function changeChatModel(model:string){
+    const keepThinking=Boolean(activeInvestigation?.thinkEnabled)&&modelSupportsThinking(model);
+    void updateChatSettings({aiModel:model,thinkEnabled:keepThinking});
   }
 
   async function runAgent(
@@ -496,6 +566,8 @@ export default function InvestigatorWorkspace(){
         incidentContext:record.incidentContext??undefined,
         connectionId:record.connectionId??selectedConnection?.id,
         agentId:record.agentId??agentId,
+        model:record.aiModel??defaultAiModel,
+        thinkEnabled:record.thinkEnabled,
       }),
     });
     const data=await response.json() as ChatResponse;
@@ -983,6 +1055,39 @@ export default function InvestigatorWorkspace(){
               <div className="eyebrow">{activeInvestigation.kind==="alert"?"ALERT INVESTIGATION":"INCIDENT INVESTIGATION"}</div>
               <h2 id="investigation-dialog-title">{activeInvestigation.title}</h2>
               <p>{activeInvestigation.description||"Continue the conversation to establish scope, search evidence, and produce an incident report."}</p>
+              <div className="investigation-chat-settings" aria-label="Chat AI settings">
+                <label>
+                  <span>Agent</span>
+                  <select
+                    value={activeInvestigation.agentId??agentId}
+                    onChange={(event)=>void updateChatSettings({agentId:event.target.value})}
+                    disabled={sending||deleting}
+                  >
+                    {agents.map((agent)=><option value={agent.id} key={agent.id}>{agent.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>AI model</span>
+                  <select
+                    value={activeInvestigation.aiModel??defaultAiModel}
+                    onChange={(event)=>changeChatModel(event.target.value)}
+                    disabled={sending||deleting||chatModelsLoading}
+                  >
+                    {activeInvestigation.aiModel&&!chatModels.some((model)=>model.id===activeInvestigation.aiModel)&&<option value={activeInvestigation.aiModel}>{activeInvestigation.aiModel} · saved</option>}
+                    {!activeInvestigation.aiModel&&!chatModels.some((model)=>model.id===defaultAiModel)&&<option value={defaultAiModel}>{defaultAiModel} · configured</option>}
+                    {chatModels.map((model)=><option value={model.id} key={model.id}>{model.id}{model.ownedBy?" · "+model.ownedBy:""}</option>)}
+                  </select>
+                </label>
+                <label className="investigation-thinking-toggle">
+                  <input
+                    type="checkbox"
+                    checked={activeInvestigation.thinkEnabled}
+                    onChange={(event)=>void updateChatSettings({thinkEnabled:event.target.checked})}
+                    disabled={sending||deleting||!modelSupportsThinking(activeInvestigation.aiModel??defaultAiModel)}
+                  />
+                  <span><strong>Thinking mode</strong><small>{!modelSupportsThinking(activeInvestigation.aiModel??defaultAiModel)?"Choose a reasoning-capable model":""}{modelSupportsThinking(activeInvestigation.aiModel??defaultAiModel)&&(activeInvestigation.thinkEnabled?"Reasoning enabled for this chat":"Standard responses")}</small></span>
+                </label>
+              </div>
             </div>
             <div className="investigation-dialog-actions">
               <span className={"investigation-status "+activeInvestigation.status}>{activeInvestigation.status}</span>
@@ -1005,14 +1110,14 @@ export default function InvestigatorWorkspace(){
               </div>
               <div className="investigation-chat-messages">
                 {activeInvestigation.messages.map((message,index)=><div key={message.id??String(index)} className={"message "+message.role}>
-                  <div className="message-role">{message.role==="assistant"?(selectedAgent?.name??"SPLUNK BOT"):"YOU"}</div>
+                  <div className="message-role">{message.role==="assistant"?(activeChatAgent?.name??"SPLUNK BOT"):"YOU"}</div>
                   <div className="message-content">
                     {message.role==="assistant"
                       ?<MarkdownMessage content={message.content}/>
                       :message.content}
                   </div>
                 </div>)}
-                {sending&&<div className="message assistant"><div className="message-role">{selectedAgent?.name??"SPLUNK BOT"}</div><div className="message-content">Investigating…</div></div>}
+                {sending&&<div className="message assistant"><div className="message-role">{activeChatAgent?.name??"SPLUNK BOT"}</div><div className="message-content">Investigating…</div></div>}
               </div>
               {questions.length>0&&<div className="questions">
                 <div className="questions-title">Clarify the investigation before I search Splunk</div>
