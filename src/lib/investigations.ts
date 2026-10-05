@@ -50,6 +50,8 @@ function mapInvestigation(row:Row):InvestigationRecord{
     incidentId:row.incident_id==null?null:String(row.incident_id),
     connectionId:row.connection_id==null?null:String(row.connection_id),
     agentId:row.agent_id==null?null:String(row.agent_id),
+    aiModel:row.ai_model==null?null:String(row.ai_model),
+    thinkEnabled:Boolean(row.think_enabled),
     eventContext,
     incidentContext,
     messages:mapMessages(row.messages),
@@ -105,6 +107,8 @@ export async function createInvestigation(input:{
   incidentId?:string;
   connectionId?:string;
   agentId?:string;
+  aiModel?:string;
+  thinkEnabled?:boolean;
   eventContext?:Record<string,unknown>;
   incidentContext?:IncidentContext;
   messages?:ChatMessage[];
@@ -119,8 +123,8 @@ export async function createInvestigation(input:{
   await query(
     `INSERT INTO investigations(
        id,kind,title,description,status,source_event_id,incident_id,
-       connection_id,agent_id,event_context,incident_context,messages
-     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb,$12::jsonb)`,
+       connection_id,agent_id,ai_model,think_enabled,event_context,incident_context,messages
+     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb)`,
     [
       id,
       input.kind,
@@ -131,6 +135,8 @@ export async function createInvestigation(input:{
       input.incidentId??null,
       input.connectionId??null,
       input.agentId??null,
+      input.aiModel?.trim().slice(0,128)||null,
+      input.thinkEnabled??false,
       JSON.stringify(input.eventContext??null),
       JSON.stringify(input.incidentContext??null),
       JSON.stringify(input.messages??[]),
@@ -149,6 +155,8 @@ export async function updateInvestigation(id:string,input:{
   searches?:SearchAudit[];
   skills?:string[];
   budget?:AgentBudget|null;
+  aiModel?:string|null;
+  thinkEnabled?:boolean;
   closureClassification?:InvestigationRecord["closureClassification"];
   closureReason?:string;
 }):Promise<InvestigationRecord>{
@@ -163,8 +171,10 @@ export async function updateInvestigation(id:string,input:{
             searches=COALESCE($6::jsonb,searches),
             skills=COALESCE($7::jsonb,skills),
             budget=COALESCE($8::jsonb,budget),
-            closure_classification=COALESCE($9,closure_classification),
-            closure_reason=COALESCE($10,closure_reason),
+            ai_model=COALESCE($9,ai_model),
+            think_enabled=COALESCE($10,think_enabled),
+            closure_classification=COALESCE($11,closure_classification),
+            closure_reason=COALESCE($12,closure_reason),
             updated_at=NOW()
       WHERE id=$1
       RETURNING *`,
@@ -177,6 +187,8 @@ export async function updateInvestigation(id:string,input:{
       input.searches===undefined?null:JSON.stringify(input.searches),
       input.skills===undefined?null:JSON.stringify(input.skills),
       input.budget===undefined?null:JSON.stringify(input.budget),
+      input.aiModel===undefined?null:(input.aiModel?.trim().slice(0,128)||null),
+      input.thinkEnabled===undefined?null:input.thinkEnabled,
       input.closureClassification??null,
       input.closureReason===undefined?null:input.closureReason,
     ],

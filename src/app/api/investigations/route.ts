@@ -31,6 +31,8 @@ export async function POST(request:NextRequest){
       incidentId?:string;
       connectionId?:string;
       agentId?:string;
+      aiModel?:string;
+      thinkEnabled?:boolean;
       eventContext?:Record<string,unknown>;
       incidentContext?:IncidentContext;
       messages?:ChatMessage[];
@@ -44,6 +46,8 @@ export async function POST(request:NextRequest){
       incidentId:body.incidentId?String(body.incidentId):undefined,
       connectionId:body.connectionId?String(body.connectionId):undefined,
       agentId:body.agentId?String(body.agentId):undefined,
+      aiModel:body.aiModel?String(body.aiModel):undefined,
+      thinkEnabled:typeof body.thinkEnabled==="boolean"?body.thinkEnabled:undefined,
       eventContext:body.eventContext&&typeof body.eventContext==="object"?body.eventContext:undefined,
       incidentContext:body.incidentContext,
       messages:Array.isArray(body.messages)?body.messages:undefined,

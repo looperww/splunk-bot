@@ -219,6 +219,8 @@ async function createSchema():Promise<void>{
         incident_id TEXT,
         connection_id TEXT REFERENCES splunk_connections(id) ON DELETE SET NULL,
         agent_id TEXT,
+        ai_model TEXT,
+        think_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         event_context JSONB,
         incident_context JSONB,
         messages JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -242,7 +244,9 @@ async function createSchema():Promise<void>{
 
       ALTER TABLE investigations
         ADD COLUMN IF NOT EXISTS closure_classification TEXT,
-        ADD COLUMN IF NOT EXISTS closure_reason TEXT NOT NULL DEFAULT '';
+        ADD COLUMN IF NOT EXISTS closure_reason TEXT NOT NULL DEFAULT '',
+        ADD COLUMN IF NOT EXISTS ai_model TEXT,
+        ADD COLUMN IF NOT EXISTS think_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
       CREATE TABLE IF NOT EXISTS investigation_learnings (
         id TEXT PRIMARY KEY,

@@ -38,6 +38,15 @@ type OutputItem = {
 
 type OpenAIResponse = { id:string; output?:OutputItem[] };
 
+export type InvestigationAiOptions={
+  model?:string;
+  thinkEnabled?:boolean;
+};
+
+function supportsReasoningModel(model:string):boolean{
+  return /^(gpt-5|o\d(?:-|$)|gpt-oss)/i.test(model.trim());
+}
+
 const CLARIFICATION_PROMPT=[
   "You are the intake stage of Splunk Bot, a defensive SOC investigation agent.",
   "Your only job is to establish the minimum useful investigation scope before any Splunk search is allowed.",
@@ -170,10 +179,17 @@ async function callAI(
   tools:unknown[],
   previousResponseId?:string,
   toolChoice?:unknown,
+  options?:InvestigationAiOptions,
 ):Promise<OpenAIResponse>{
-  const body:Record<string,unknown>={model,tools,input};
+  const selectedModel=options?.model?.trim()||model;
+  const body:Record<string,unknown>={
+    model:selectedModel,
+    tools,
+    input,
+  };
   if(previousResponseId) body.previous_response_id=previousResponseId;
   if(toolChoice) body.tool_choice=toolChoice;
+  if(options?.thinkEnabled&&supportsReasoningModel(selectedModel)) body.reasoning={effort:"medium"};
 
   let response:Response;
   try{
@@ -236,6 +252,7 @@ export async function planInvestigation(
   eventContext?:Record<string,unknown>,
   agent?:InvestigationAgent,
   incidentContext?:IncidentContext,
+  options?:InvestigationAiOptions,
 ):Promise<InvestigationPlan>{
   const ai=await getAiRuntimeSettings();
 
@@ -300,6 +317,9 @@ export async function planInvestigation(
       ...messages.map((m)=>({role:m.role,content:m.content})),
     ],
     [clarificationTool,readyTool],
+    undefined,
+    undefined,
+    options,
   );
 
   const clarification=extractCall(response,"request_clarification");
@@ -359,6 +379,7 @@ export async function investigate(
   connectionId?:string,
   agent?:InvestigationAgent,
   incidentContext?:IncidentContext,
+  options?:InvestigationAiOptions,
 ){
   const ai=await getAiRuntimeSettings();
   if(!connectionId){
@@ -385,6 +406,9 @@ export async function investigate(
       ...messages.map((m)=>({role:m.role,content:m.content})),
     ],
     [searchTool],
+    undefined,
+    undefined,
+    options,
   );
 
   const searches:Array<{
@@ -507,6 +531,8 @@ export async function investigate(
       outputs,
       [searchTool],
       response.id,
+      undefined,
+      options,
     );
   }
 
@@ -652,7 +678,10 @@ export async function suggestInvestigationClosure(
       "The analyst remains the decision maker and may change every field.",
     ].join("\n")},
     {role:"user",content:closureContext(investigation)},
-  ],[closureSuggestionTool],undefined,{type:"function",name:"suggest_closure_decision"});
+  ],[closureSuggestionTool],undefined,{type:"function",name:"suggest_closure_decision"},{
+    model:investigation.aiModel??undefined,
+    thinkEnabled:investigation.thinkEnabled,
+  });
   const call=extractCall(response,"suggest_closure_decision");
   if(!call?.arguments) throw new Error("The AI did not return a closure suggestion.");
   const result=JSON.parse(call.arguments) as Record<string,unknown>;
@@ -674,6 +703,7 @@ export async function draftInvestigationLearning(
   "createdAt"|"updatedAt"|"lastUsedAt"
 >&{model:string}>{
   const ai=await getAiRuntimeSettings();
+  const selectedModel=investigation.aiModel??ai.model;
   const detectionFamily=inferDetectionFamily(investigation);
   if(!ai.apiKey||ai.provider==="mock"){
     return {
@@ -712,7 +742,10 @@ export async function draftInvestigationLearning(
       `ANALYST-CONFIRMED REASON: ${analystReason}`,
       closureContext(investigation),
     ].join("\n\n")},
-  ],[learningPatternTool],undefined,{type:"function",name:"draft_learning_pattern"});
+  ],[learningPatternTool],undefined,{type:"function",name:"draft_learning_pattern"},{
+    model:investigation.aiModel??undefined,
+    thinkEnabled:investigation.thinkEnabled,
+  });
   const call=extractCall(response,"draft_learning_pattern");
   if(!call?.arguments) throw new Error("The AI did not return a learning pattern.");
   const result=JSON.parse(call.arguments) as Record<string,unknown>;
@@ -731,7 +764,7 @@ export async function draftInvestigationLearning(
     supportingSignals:Array.isArray(result.supportingSignals)?result.supportingSignals.map(String).filter(Boolean).slice(0,8):[],
     exclusions:Array.isArray(result.exclusions)?result.exclusions.map(String).filter(Boolean).slice(0,8):[],
     confidence:Math.max(0,Math.min(1,Number(result.confidence)||0)),
-    model:ai.model,
+    model:selectedModel,
   };
 }
 
@@ -810,7 +843,7 @@ function localInvestigationReport(
 
 export async function generateInvestigationReport(
   investigation:Pick<InvestigationRecord,
-    "title"|"description"|"kind"|"eventContext"|"incidentContext"|"messages"|"scope"|"searches"|"skills"
+    "title"|"description"|"kind"|"eventContext"|"incidentContext"|"messages"|"scope"|"searches"|"skills"|"aiModel"|"thinkEnabled"
   >,
   agent?:InvestigationAgent,
 ):Promise<string>{
@@ -865,7 +898,10 @@ export async function generateInvestigationReport(
     ].filter(Boolean).join("\n\n")},
     {role:"user",content:"Generate the final incident report now."},
   ];
-  const response=await callAI(ai.apiKey,ai.model,input,[]);
+  const response=await callAI(ai.apiKey,ai.model,input,[],undefined,undefined,{
+    model:investigation.aiModel??undefined,
+    thinkEnabled:investigation.thinkEnabled,
+  });
   const report=extractText(response);
   if(!report) throw new Error("The AI returned an empty incident report.");
   return report;

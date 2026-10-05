@@ -36,6 +36,8 @@ export async function POST(request:NextRequest){
       connectionId?:string;
       ameEventId?:string;
       title?:string;
+      aiModel?:string;
+      thinkEnabled?:boolean;
     };
 
     const scenarioId=String(body.scenarioId??"").trim();
@@ -80,6 +82,8 @@ export async function POST(request:NextRequest){
       incidentId:incident.id,
       connectionId,
       agentId:"default-soc-agent",
+      aiModel:body.aiModel?String(body.aiModel):undefined,
+      thinkEnabled:typeof body.thinkEnabled==="boolean"?body.thinkEnabled:undefined,
       incidentContext:incident.context as IncidentContext,
       messages:[{
         id:`incident-${incident.id}-welcome`,

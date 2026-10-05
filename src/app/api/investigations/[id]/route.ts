@@ -44,6 +44,8 @@ export async function PATCH(
       searches?:SearchAudit[];
       skills?:string[];
       budget?:AgentBudget|null;
+      aiModel?:string|null;
+      thinkEnabled?:boolean;
     };
     const investigation=await updateInvestigation(id,{
       status:body.status,
@@ -53,6 +55,8 @@ export async function PATCH(
       searches:Array.isArray(body.searches)?body.searches:undefined,
       skills:Array.isArray(body.skills)?body.skills.map(String):undefined,
       budget:body.budget,
+      aiModel:body.aiModel===undefined?undefined:body.aiModel===null?null:String(body.aiModel),
+      thinkEnabled:typeof body.thinkEnabled==="boolean"?body.thinkEnabled:undefined,
     });
     return NextResponse.json({investigation});
   }catch(error){

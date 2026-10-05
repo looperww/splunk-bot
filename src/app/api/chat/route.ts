@@ -15,6 +15,8 @@ export async function POST(request: NextRequest){
       incidentContext?:IncidentContext;
       connectionId?:string;
       agentId?:string;
+      model?:string;
+      thinkEnabled?:boolean;
     };
 
     if(!Array.isArray(body.messages)){
@@ -46,6 +48,8 @@ export async function POST(request: NextRequest){
       return NextResponse.json({error:"A Splunk connection must be selected before investigating."},{status:400});
     }
     const agentId=String(body.agentId??"default-soc-agent");
+    const model=String(body.model??"").trim().slice(0,128)||undefined;
+    const thinkEnabled=body.thinkEnabled===true;
     const agent=await getAgent(agentId);
     if(!agent){
       return NextResponse.json({error:"The selected investigation agent was not found."},{status:400});
@@ -55,6 +59,7 @@ export async function POST(request: NextRequest){
       body.eventContext,
       agent,
       body.incidentContext,
+      {model,thinkEnabled},
     );
 
     if(plan.status==="clarification_needed"){
@@ -93,6 +98,7 @@ export async function POST(request: NextRequest){
       connectionId,
       agent,
       body.incidentContext,
+      {model,thinkEnabled},
     );
 
     return NextResponse.json({

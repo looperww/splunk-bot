@@ -135,6 +135,8 @@ export type InvestigationRecord={
   incidentId:string|null;
   connectionId:string|null;
   agentId:string|null;
+  aiModel:string|null;
+  thinkEnabled:boolean;
   eventContext:Record<string,unknown>|null;
   incidentContext:IncidentContext|null;
   messages:ChatMessage[];
