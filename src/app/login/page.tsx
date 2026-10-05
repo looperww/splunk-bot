@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { SirenIcon } from "@phosphor-icons/react";
 
 function safeNextPath(value:string|null):string{
   if(value&&value.startsWith("/")&&!value.startsWith("//")&&!value.startsWith("/login")) return value;
@@ -67,7 +68,7 @@ export default function LoginPage(){
   return <main className="login-page">
     <section className="login-card" aria-labelledby="login-title">
       <div className="login-brand">
-        <span className="brand-mark">SB</span>
+        <span className="brand-mark"><SirenIcon size={20} weight="fill"/></span>
         <div>
           <strong>Splunk Bot</strong>
           <small>Security workspace</small>

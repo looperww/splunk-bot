@@ -2,7 +2,22 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  BellIcon,
+  BooksIcon,
+  BrainIcon,
+  DatabaseIcon,
+  GearIcon,
+  HouseIcon,
+  LightningIcon,
+  MagnifyingGlassIcon,
+  RobotIcon,
+  ShieldWarningIcon,
+  SignOutIcon,
+  SirenIcon,
+  type Icon,
+} from "@phosphor-icons/react";
 import type { StoredSplunkConnection } from "@/lib/connections";
 import type { AmeEvent, IncidentContext } from "@/lib/types";
 
@@ -17,16 +32,24 @@ type AppState={
 
 const AppStateContext=createContext<AppState|null>(null);
 
-const navigation=[
-  {href:"/dashboard",label:"Dashboard",mark:"D"},
-  {href:"/events",label:"Events",mark:"E"},
-  {href:"/incidents",label:"Incidents",mark:"I"},
-  {href:"/alerts",label:"Alerts",mark:"A"},
-  {href:"/skills",label:"Skills",mark:"S"},
-  {href:"/agents",label:"Agents",mark:"G"},
-  {href:"/knowledge",label:"Knowledge",mark:"K"},
-  {href:"/settings",label:"Settings",mark:"⚙"},
+const navigation:{group:string;items:{href:string;label:string;icon:Icon}[]}[]=[
+  {group:"Operations",items:[
+    {href:"/dashboard",label:"Investigations",icon:HouseIcon},
+    {href:"/events",label:"Events",icon:LightningIcon},
+    {href:"/alerts",label:"Alerts",icon:BellIcon},
+    {href:"/incidents",label:"Incidents",icon:ShieldWarningIcon},
+  ]},
+  {group:"Intelligence",items:[
+    {href:"/knowledge",label:"Knowledge",icon:DatabaseIcon},
+    {href:"/skills",label:"Skills",icon:BooksIcon},
+    {href:"/agents",label:"Agents",icon:RobotIcon},
+  ]},
+  {group:"System",items:[
+    {href:"/settings",label:"Settings",icon:GearIcon},
+  ]},
 ];
+
+const pageNames=new Map(navigation.flatMap((section)=>section.items.map((item)=>[item.href,item.label])));
 
 export function useAppState():AppState{
   const value=useContext(AppStateContext);
@@ -42,6 +65,7 @@ export default function AppShell({children}:{children:React.ReactNode}){
   const [selectedConnection,setConnection]=useState<StoredSplunkConnection|null>(null);
   const [selectedEvent,setEvent]=useState<AmeEvent|null>(null);
   const [selectedIncident,setIncident]=useState<IncidentContext|null>(null);
+  const [globalSearch,setGlobalSearch]=useState("");
 
   useEffect(()=>{
     if(pathname==="/login"){
@@ -120,6 +144,13 @@ export default function AppShell({children}:{children:React.ReactNode}){
     else sessionStorage.removeItem("splunk-bot-selected-incident");
   }
 
+  function searchEvents(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();
+    const query=globalSearch.trim();
+    if(!query) return;
+    router.push("/events?search="+encodeURIComponent(query));
+  }
+
   const value=useMemo<AppState>(()=>({
     selectedConnection,
     setSelectedConnection,
@@ -136,25 +167,25 @@ export default function AppShell({children}:{children:React.ReactNode}){
     <div className="app-frame">
       <aside className="app-sidebar">
         <div className="sidebar-brand">
-          <span className="brand-mark">SB</span>
+          <span className="brand-mark"><SirenIcon size={20} weight="fill"/></span>
           <div>
             <strong>Splunk Bot</strong>
-            <small>Security workspace</small>
+            <small>SOC investigation</small>
           </div>
         </div>
 
         <nav className="sidebar-nav" aria-label="Primary navigation">
-          {navigation.map((item)=>{
-            const active=pathname===item.href||pathname.startsWith(item.href+"/");
-            return <Link
-              href={item.href}
-              key={item.href}
-              className={"sidebar-link "+(active?"active":"")}
-            >
-              <span className="nav-mark">{item.mark}</span>
-              <span>{item.label}</span>
-            </Link>;
-          })}
+          {navigation.map((section)=><div className="sidebar-section" key={section.group}>
+            <span className="sidebar-section-label">{section.group}</span>
+            {section.items.map((item)=>{
+              const active=pathname===item.href||pathname.startsWith(item.href+"/");
+              const NavIcon=item.icon;
+              return <Link href={item.href} key={item.href} className={"sidebar-link "+(active?"active":"")}>
+                <span className="nav-mark"><NavIcon size={18} weight={active?"fill":"regular"}/></span>
+                <span>{item.label}</span>
+              </Link>;
+            })}
+          </div>)}
         </nav>
 
         <div className="sidebar-status">
@@ -164,11 +195,33 @@ export default function AppShell({children}:{children:React.ReactNode}){
             <small>{selectedConnection?selectedConnection.status:"Configure in Settings"}</small>
           </div>
           <button className="sidebar-logout" type="button" onClick={signOut} title={`Sign out ${authUser?.username??""}`}>
-            Sign out
+            <SignOutIcon size={16}/><span>Sign out</span>
           </button>
         </div>
       </aside>
-      <div className="app-content">{children}</div>
+      <div className="app-main">
+        <header className="app-topbar">
+          <div className="topbar-context">
+            <BrainIcon size={19} weight="duotone"/>
+            <span>{pageNames.get(pathname)??"Security workspace"}</span>
+          </div>
+          <form className="global-search" onSubmit={searchEvents}>
+            <MagnifyingGlassIcon size={17}/>
+            <input
+              value={globalSearch}
+              onChange={(event)=>setGlobalSearch(event.target.value)}
+              placeholder="Search events by ID, title, owner, or urgency"
+              aria-label="Search events"
+            />
+            <kbd>Enter</kbd>
+          </form>
+          <div className="topbar-status">
+            <span className={"status-dot "+(selectedConnection?"online":"")}/>
+            <span>{selectedConnection?.name??"No Splunk connection"}</span>
+          </div>
+        </header>
+        <div className="app-content">{children}</div>
+      </div>
     </div>
   </AppStateContext.Provider>;
 }
