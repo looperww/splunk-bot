@@ -404,47 +404,30 @@ async function createSchema():Promise<void>{
 
     `);
 
-    await client.query(`
-      INSERT INTO investigations(
-        id,kind,title,description,status,incident_id,connection_id,
-        incident_context,created_at,updated_at
-      )
-      SELECT
-        'incident-'||i.id,
-        'incident',
-        i.title,
-        COALESCE(i.context->>'summary',i.scenario_name,''),
-        CASE WHEN LOWER(i.status) IN ('closed','resolved','complete','completed') THEN 'closed' ELSE 'ongoing' END,
-        i.id,
-        i.connection_id,
-        i.context,
-        i.created_at,
-        i.updated_at
-      FROM incidents i
-      WHERE NOT EXISTS(
-        SELECT 1 FROM investigations existing WHERE existing.incident_id=i.id
-      )
-    `);
+    // New incident intake creates its investigation explicitly in the API.
+    // Do not repeat the historical incident backfill here: an analyst may have
+    // intentionally deleted the investigation while retaining the intake row.
+    // Re-running the backfill on every process start would resurrect that data.
 
-      for (const scenario of INCIDENT_SCENARIOS) {
-        await client.query(
-          `INSERT INTO incident_scenarios(
-             id,name,category,description,objective,focus,target_field_ids,time_field_id,fields,is_system_default,is_enabled
-           ) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,TRUE,TRUE)
-           ON CONFLICT(id) DO NOTHING`,
-          [
-            scenario.id,
-            scenario.name,
-            scenario.category,
-            scenario.description,
-            scenario.objective,
-            scenario.focus,
-            JSON.stringify(scenario.targetFieldIds),
-            scenario.timeFieldId ?? null,
-            JSON.stringify(scenario.fields),
-          ],
-        );
-      }
+    for (const scenario of INCIDENT_SCENARIOS) {
+      await client.query(
+        `INSERT INTO incident_scenarios(
+           id,name,category,description,objective,focus,target_field_ids,time_field_id,fields,is_system_default,is_enabled
+         ) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9::jsonb,TRUE,TRUE)
+         ON CONFLICT(id) DO NOTHING`,
+        [
+          scenario.id,
+          scenario.name,
+          scenario.category,
+          scenario.description,
+          scenario.objective,
+          scenario.focus,
+          JSON.stringify(scenario.targetFieldIds),
+          scenario.timeFieldId ?? null,
+          JSON.stringify(scenario.fields),
+        ],
+      );
+    }
   });
 }
 
