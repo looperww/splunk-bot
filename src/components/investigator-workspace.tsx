@@ -14,6 +14,7 @@ import type {
   ClosureSuggestion,
   DecisionClassification,
   IncidentContext,
+  InvestigationLearningDraft,
   InvestigationQuestion,
   InvestigationRecord,
   InvestigationScope,
@@ -145,6 +146,10 @@ export default function InvestigatorWorkspace(){
   const [closureReason,setClosureReason]=useState("");
   const [closureConfidence,setClosureConfidence]=useState(0);
   const [closureDetectionFamily,setClosureDetectionFamily]=useState("General");
+  const [learningReviewOpen,setLearningReviewOpen]=useState(false);
+  const [learningDraftLoading,setLearningDraftLoading]=useState(false);
+  const [savingLearning,setSavingLearning]=useState(false);
+  const [learningDraft,setLearningDraft]=useState<InvestigationLearningDraft|null>(null);
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const ongoing=useMemo(
@@ -188,7 +193,7 @@ export default function InvestigatorWorkspace(){
   },[selectedEvent?.id]);
 
   useEffect(()=>{
-    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen&&!closureReviewOpen) return;
+    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen&&!closureReviewOpen&&!learningReviewOpen) return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
     function onKeyDown(event:KeyboardEvent){
@@ -197,7 +202,10 @@ export default function InvestigatorWorkspace(){
         setScenarioDialogOpen(false);
         setIntakeOpen(false);
         setReportConfirmOpen(false);
-        if(!savingClosure) setClosureReviewOpen(false);
+        if(!savingClosure&&!learningDraftLoading&&!savingLearning){
+          setClosureReviewOpen(false);
+          setLearningReviewOpen(false);
+        }
       }
     }
     window.addEventListener("keydown",onKeyDown);
@@ -205,7 +213,7 @@ export default function InvestigatorWorkspace(){
       document.body.style.overflow=previous;
       window.removeEventListener("keydown",onKeyDown);
     };
-  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen,closureReviewOpen,savingClosure]);
+  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen,closureReviewOpen,learningReviewOpen,savingClosure,learningDraftLoading,savingLearning]);
 
   function chooseAgent(id:string){
     setAgentId(id);
@@ -552,6 +560,8 @@ export default function InvestigatorWorkspace(){
     setClosureReason(record.closureReason||"");
     setClosureConfidence(0);
     setClosureDetectionFamily("General");
+    setLearningDraft(null);
+    setLearningReviewOpen(false);
     setClosureReviewOpen(true);
     setClosureSuggestionLoading(true);
     setError("");
@@ -574,13 +584,57 @@ export default function InvestigatorWorkspace(){
   }
 
   async function confirmClosure(){
-    if(!activeInvestigation||savingClosure) return;
+    if(!activeInvestigation||savingClosure||learningDraftLoading) return;
     const reason=closureReason.trim();
     if(reason.length<12){
       setError("Provide a short reason of at least 12 characters before closing.");
       return;
     }
-    setSavingClosure(true);
+    setLearningDraftLoading(true);
+    setError("");
+    try{
+      const response=await fetch(
+        "/api/investigations/"+encodeURIComponent(activeInvestigation.id)+"/learning-draft",
+        {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({classification:closureClassification,reason}),
+        },
+      );
+      const data=await response.json() as {draft?:InvestigationLearningDraft;error?:string};
+      if(!response.ok||!data.draft) throw new Error(data.error??"Failed to prepare the learning pattern.");
+      setLearningDraft(data.draft);
+      setClosureReviewOpen(false);
+      setLearningReviewOpen(true);
+    }catch(reasonValue){
+      setError(reasonValue instanceof Error?reasonValue.message:"Failed to prepare the learning pattern.");
+    }finally{
+      setLearningDraftLoading(false);
+    }
+  }
+
+  function updateLearningDraft(update:Partial<InvestigationLearningDraft>){
+    setLearningDraft((current)=>current?{...current,...update}:current);
+  }
+
+  function updateLearningScope(key:string,value:string){
+    setLearningDraft((current)=>current?{...current,scope:{...current.scope,[key]:value}}:current);
+  }
+
+  function updateLearningList(key:"supportingSignals"|"exclusions",value:string){
+    updateLearningDraft({[key]:value.split("\n").map((item)=>item.trim()).filter(Boolean).slice(0,12)} as Partial<InvestigationLearningDraft>);
+  }
+
+  async function confirmLearning(){
+    if(!activeInvestigation||!learningDraft||savingLearning) return;
+    const title=learningDraft.title.trim();
+    const detectionFamily=learningDraft.detectionFamily.trim();
+    const reason=learningDraft.reason.trim();
+    if(!title||!detectionFamily||reason.length<12){
+      setError("Complete the learning title, detection family, and a reason of at least 12 characters.");
+      return;
+    }
+    setSavingLearning(true);
     setError("");
     try{
       const response=await fetch(
@@ -588,18 +642,25 @@ export default function InvestigatorWorkspace(){
         {
           method:"POST",
           headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({classification:closureClassification,reason}),
+          body:JSON.stringify({
+            classification:learningDraft.classification,
+            reason:closureReason.trim(),
+            learning:{...learningDraft,title,detectionFamily,reason},
+          }),
         },
       );
       const data=await response.json() as {investigation?:InvestigationRecord;error?:string};
-      if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to close the investigation.");
+      if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to save the learning pattern.");
       setActiveInvestigation(data.investigation);
       setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
+      setClosureClassification(data.investigation.closureClassification??learningDraft.classification);
       setClosureReviewOpen(false);
+      setLearningReviewOpen(false);
+      setLearningDraft(null);
     }catch(reasonValue){
-      setError(reasonValue instanceof Error?reasonValue.message:"Failed to close the investigation.");
+      setError(reasonValue instanceof Error?reasonValue.message:"Failed to save the learning pattern.");
     }finally{
-      setSavingClosure(false);
+      setSavingLearning(false);
     }
   }
 
@@ -651,12 +712,14 @@ export default function InvestigatorWorkspace(){
   }
 
   function closeDialogs(){
-    if(sending||deleting||generatingReport||savingClosure) return;
+    if(sending||deleting||generatingReport||savingClosure||learningDraftLoading||savingLearning) return;
     setDialogOpen(false);
     setScenarioDialogOpen(false);
     setIntakeOpen(false);
     setReportConfirmOpen(false);
     setClosureReviewOpen(false);
+    setLearningReviewOpen(false);
+    setLearningDraft(null);
     setActiveInvestigation(null);
     setQuestions([]);
   }
@@ -943,15 +1006,15 @@ export default function InvestigatorWorkspace(){
       </section>
     </div>}
 
-    {closureReviewOpen&&activeInvestigation&&<div className="modal-backdrop closure-review-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!savingClosure) setClosureReviewOpen(false);}}>
+    {closureReviewOpen&&activeInvestigation&&<div className="modal-backdrop closure-review-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!savingClosure&&!learningDraftLoading) setClosureReviewOpen(false);}}>
       <section className="panel modal-dialog closure-review-dialog" role="dialog" aria-modal="true" aria-labelledby="closure-review-title" onMouseDown={(event)=>event.stopPropagation()}>
         <div className="closure-review-header">
           <div>
             <div className="eyebrow">ANALYST DECISION</div>
-            <h2 id="closure-review-title">Close investigation and capture the learning</h2>
-            <p>Review the AI suggestion, adjust it if needed, and confirm the outcome that future investigations may use as guidance.</p>
+            <h2 id="closure-review-title">Confirm the ticket decision</h2>
+            <p>First confirm the severity or disposition and the analyst reason. A second review will then let you verify and edit the reusable learning pattern before anything is saved.</p>
           </div>
-          <button className="icon-button" type="button" onClick={()=>setClosureReviewOpen(false)} disabled={savingClosure} aria-label="Close">×</button>
+          <button className="icon-button" type="button" onClick={()=>setClosureReviewOpen(false)} disabled={savingClosure||learningDraftLoading} aria-label="Close">×</button>
         </div>
 
         {error&&<div className="error-box modal-error" role="alert">{error}</div>}
@@ -961,7 +1024,7 @@ export default function InvestigatorWorkspace(){
           <div><span className="label">AI-PREPARED REVIEW</span><strong>{closureSuggestionLoading?"Reviewing the investigation record…":closureDetectionFamily}</strong><small>{closureSuggestionLoading?"The form remains editable while the suggestion is prepared.":`${Math.round(closureConfidence*100)}% confidence · analyst confirmation required`}</small></div>
         </div>
 
-        <fieldset className="closure-decision-fieldset" disabled={savingClosure}>
+        <fieldset className="closure-decision-fieldset" disabled={savingClosure||learningDraftLoading}>
           <legend>Final severity or disposition</legend>
           <div className="closure-decision-options">
             {(["false_positive","critical","high","medium","low"] as DecisionClassification[]).map((item)=><label className={closureClassification===item?"selected "+item:item} key={item}>
@@ -973,7 +1036,7 @@ export default function InvestigatorWorkspace(){
 
         <label className="closure-reason-field">
           <span className="label">Short decision reason</span>
-          <textarea rows={5} maxLength={1200} value={closureReason} onChange={(event)=>setClosureReason(event.target.value)} placeholder="Explain the evidence and context that support this decision." disabled={savingClosure}/>
+          <textarea rows={5} maxLength={1200} value={closureReason} onChange={(event)=>setClosureReason(event.target.value)} placeholder="Explain the evidence and context that support this decision." disabled={savingClosure||learningDraftLoading}/>
           <small>{closureReason.length} / 1200 · This analyst-confirmed explanation becomes the source reasoning for the learning pattern.</small>
         </label>
 
@@ -983,8 +1046,96 @@ export default function InvestigatorWorkspace(){
         </div>
 
         <div className="closure-review-footer">
-          <button className="secondary-button" type="button" onClick={()=>setClosureReviewOpen(false)} disabled={savingClosure}>Continue investigation</button>
-          <button className="primary-button" type="button" onClick={()=>void confirmClosure()} disabled={savingClosure||closureSuggestionLoading||closureReason.trim().length<12}>{savingClosure?"Creating learning pattern…":"Close & create learning"}</button>
+          <button className="secondary-button" type="button" onClick={()=>setClosureReviewOpen(false)} disabled={savingClosure||learningDraftLoading}>Continue investigation</button>
+          <button className="primary-button" type="button" onClick={()=>void confirmClosure()} disabled={savingClosure||learningDraftLoading||closureSuggestionLoading||closureReason.trim().length<12}>{learningDraftLoading?"Preparing learning review…":"Review learning pattern"}</button>
+        </div>
+      </section>
+    </div>}
+
+    {learningReviewOpen&&activeInvestigation&&learningDraft&&<div className="modal-backdrop learning-review-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!savingLearning) setLearningReviewOpen(false);}}>
+      <section className="panel modal-dialog learning-review-dialog" role="dialog" aria-modal="true" aria-labelledby="learning-review-title" onMouseDown={(event)=>event.stopPropagation()}>
+        <div className="closure-review-header">
+          <div>
+            <div className="eyebrow">VERIFY LEARNING</div>
+            <h2 id="learning-review-title">Review the AI learning pattern</h2>
+            <p>This pattern will be saved to Knowledge → Decision learning and shown as guidance in future investigations. Edit any field before confirming.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={()=>setLearningReviewOpen(false)} disabled={savingLearning} aria-label="Close">×</button>
+        </div>
+
+        {error&&<div className="error-box modal-error" role="alert">{error}</div>}
+
+        <div className="learning-review-source">
+          <span className="label">SOURCE DECISION</span>
+          <strong>{activeInvestigation.title}</strong>
+          <small>{decisionLabel(closureClassification)} · {closureDetectionFamily} · {activeInvestigation.kind}</small>
+        </div>
+
+        <div className="learning-review-form-grid">
+          <label className="learning-review-field learning-review-field-full">
+            <span className="label">Pattern title</span>
+            <input value={learningDraft.title} maxLength={240} onChange={(event)=>updateLearningDraft({title:event.target.value})}/>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Detection family</span>
+            <input value={learningDraft.detectionFamily} maxLength={120} onChange={(event)=>updateLearningDraft({detectionFamily:event.target.value})}/>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Classification</span>
+            <select value={learningDraft.classification} onChange={(event)=>updateLearningDraft({classification:event.target.value as DecisionClassification})}>
+              {(["false_positive","critical","high","medium","low"] as DecisionClassification[]).map((item)=><option key={item} value={item}>{decisionLabel(item)}</option>)}
+            </select>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Base severity</span>
+            <select value={learningDraft.baseSeverity} onChange={(event)=>updateLearningDraft({baseSeverity:event.target.value as InvestigationLearningDraft["baseSeverity"]})}>
+              {(["critical","high","medium","low"] as InvestigationLearningDraft["baseSeverity"][]).map((item)=><option key={item} value={item}>{item.charAt(0).toUpperCase()+item.slice(1)}</option>)}
+            </select>
+          </label>
+          <label className="learning-review-field learning-review-field-full">
+            <span className="label">Reusable decision reason</span>
+            <textarea rows={4} maxLength={1200} value={learningDraft.reason} onChange={(event)=>updateLearningDraft({reason:event.target.value})}/>
+            <small>{learningDraft.reason.length} / 1200 · Explain when this pattern supports the classification.</small>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Applies to</span>
+            <input value={String(learningDraft.scope.appliesTo??"")} onChange={(event)=>updateLearningScope("appliesTo",event.target.value)}/>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Target context</span>
+            <input value={String(learningDraft.scope.target??"")} onChange={(event)=>updateLearningScope("target",event.target.value)}/>
+          </label>
+          <label className="learning-review-field learning-review-field-full">
+            <span className="label">Data sources</span>
+            <input value={String(learningDraft.scope.dataSources??"")} onChange={(event)=>updateLearningScope("dataSources",event.target.value)}/>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Supporting signals <small>(one per line)</small></span>
+            <textarea rows={5} value={learningDraft.supportingSignals.join("\n")} onChange={(event)=>updateLearningList("supportingSignals",event.target.value)}/>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Exclusions <small>(one per line)</small></span>
+            <textarea rows={5} value={learningDraft.exclusions.join("\n")} onChange={(event)=>updateLearningList("exclusions",event.target.value)}/>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Confidence</span>
+            <input type="number" min={0} max={100} step={1} value={Math.round(learningDraft.confidence*100)} onChange={(event)=>updateLearningDraft({confidence:Math.max(0,Math.min(100,Number(event.target.value)||0))/100})}/>
+            <small>AI estimate only; it does not override analyst review.</small>
+          </label>
+          <label className="learning-review-field">
+            <span className="label">Model label</span>
+            <input value={learningDraft.model} maxLength={128} onChange={(event)=>updateLearningDraft({model:event.target.value})}/>
+          </label>
+        </div>
+
+        <div className="closure-governance-note">
+          <ShieldCheckIcon size={20} weight="duotone"/>
+          <div><strong>Human-confirmed guidance</strong><span>Only this reviewed version is saved. Future agents may use it as a contextual signal, but must verify current evidence and ask the analyst before closing a ticket.</span></div>
+        </div>
+
+        <div className="closure-review-footer learning-review-footer">
+          <button className="secondary-button" type="button" onClick={()=>{setLearningReviewOpen(false);setClosureReviewOpen(true);}} disabled={savingLearning}>Back to decision</button>
+          <button className="primary-button" type="button" onClick={()=>void confirmLearning()} disabled={savingLearning||!learningDraft.title.trim()||!learningDraft.detectionFamily.trim()||learningDraft.reason.trim().length<12}>{savingLearning?"Saving learning…":"Confirm & save learning"}</button>
         </div>
       </section>
     </div>}
