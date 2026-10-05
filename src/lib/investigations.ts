@@ -3,6 +3,7 @@ import { ensureSchema, query } from "@/lib/db";
 import type {
   AgentBudget,
   ChatMessage,
+  ClosedInvestigationMatch,
   DecisionClassification,
   IncidentContext,
   InvestigationKind,
@@ -147,6 +148,46 @@ export async function findMatchingOpenInvestigations(
     }));
 }
 
+export async function findMatchingClosedInvestigations(input:{
+  kind:InvestigationKind;
+  title:string;
+  eventContext:Record<string,unknown>|null;
+  connectionId:string|null;
+}):Promise<ClosedInvestigationMatch[]>{
+  const fingerprint=eventMatchFingerprint(input);
+  if(!fingerprint||!input.connectionId) return [];
+  await ensureSchema();
+  const rows=await query<Row>(
+    `SELECT id,kind,title,description,source_event_id,event_context,
+            closure_classification,closure_reason,created_at,updated_at
+       FROM investigations
+      WHERE connection_id=$1
+        AND kind='alert'
+        AND status='closed'
+        AND closure_classification IS NOT NULL
+        AND COALESCE(closure_reason,'')<>''
+      ORDER BY updated_at DESC
+      LIMIT 250`,
+    [input.connectionId],
+  );
+  return rows
+    .filter((row)=>eventMatchFingerprint({
+      kind:"alert",
+      title:String(row.title??""),
+      eventContext:recordValue(row.event_context),
+    })===fingerprint)
+    .map((row)=>({
+      id:String(row.id),
+      title:String(row.title??"Untitled investigation"),
+      description:String(row.description??""),
+      sourceEventId:row.source_event_id==null?null:String(row.source_event_id),
+      createdAt:new Date(String(row.created_at)).toISOString(),
+      updatedAt:new Date(String(row.updated_at)).toISOString(),
+      closureClassification:String(row.closure_classification) as DecisionClassification,
+      closureReason:String(row.closure_reason??""),
+    }));
+}
+
 export async function closeInvestigationMatches(input:{
   ids:string[];
   classification:DecisionClassification;
@@ -192,6 +233,8 @@ export async function createInvestigation(input:{
   eventContext?:Record<string,unknown>;
   incidentContext?:IncidentContext;
   messages?:ChatMessage[];
+  closureClassification?:DecisionClassification|null;
+  closureReason?:string;
 }):Promise<InvestigationRecord>{
   await ensureSchema();
   const title=input.title.trim();
@@ -203,8 +246,9 @@ export async function createInvestigation(input:{
   await query(
     `INSERT INTO investigations(
        id,kind,title,description,status,source_event_id,incident_id,
-       connection_id,agent_id,ai_model,think_enabled,event_context,incident_context,messages
-     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb)`,
+       connection_id,agent_id,ai_model,think_enabled,event_context,incident_context,messages,
+       closure_classification,closure_reason
+     ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14::jsonb,$15,$16)`,
     [
       id,
       input.kind,
@@ -220,6 +264,8 @@ export async function createInvestigation(input:{
       JSON.stringify(input.eventContext??null),
       JSON.stringify(input.incidentContext??null),
       JSON.stringify(input.messages??[]),
+      input.closureClassification??null,
+      input.closureReason?.trim()??"",
     ],
   );
   const created=await getInvestigation(id);

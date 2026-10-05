@@ -160,6 +160,11 @@ export type InvestigationMatch={
   updatedAt:string;
 };
 
+export type ClosedInvestigationMatch=InvestigationMatch & {
+  closureClassification:DecisionClassification;
+  closureReason:string;
+};
+
 export type InvestigationClosureNotification={
   id:string;
   createdAt:string;
