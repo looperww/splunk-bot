@@ -11,6 +11,12 @@ export type AiSettings={
 
 export type AiRuntimeSettings=AiSettings&{apiKey:string};
 
+export type AiModel={
+  id:string;
+  created?:number;
+  ownedBy?:string;
+};
+
 type AiSettingsRow=Record<string,unknown>;
 
 function publicSettings(row:AiSettingsRow):AiSettings{
@@ -127,4 +133,39 @@ export async function saveAiSettings(input:{
   );
 
   return getAiSettings();
+}
+
+export async function fetchOpenAiModels(apiKey:string):Promise<AiModel[]>{
+  const response=await fetch("https://api.openai.com/v1/models",{
+    method:"GET",
+    headers:{
+      Authorization:"Bearer "+apiKey,
+      Accept:"application/json",
+    },
+    cache:"no-store",
+  });
+  const text=await response.text();
+  if(!response.ok){
+    throw new Error("OpenAI API request failed ("+response.status+"): "+text.slice(0,600));
+  }
+
+  let payload:unknown;
+  try{
+    payload=JSON.parse(text);
+  }catch{
+    throw new Error("OpenAI returned an invalid model list.");
+  }
+
+  const rows=payload&&typeof payload==="object"&&Array.isArray((payload as {data?:unknown}).data)
+    ?(payload as {data:unknown[]}).data
+    :[];
+  return rows
+    .filter((row):row is Record<string,unknown>=>Boolean(row)&&typeof row==="object")
+    .map((row)=>({
+      id:String(row.id??""),
+      created:typeof row.created==="number"?row.created:undefined,
+      ownedBy:row.owned_by==null?undefined:String(row.owned_by),
+    }))
+    .filter((model)=>Boolean(model.id))
+    .sort((left,right)=>left.id.localeCompare(right.id));
 }
