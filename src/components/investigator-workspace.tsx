@@ -1034,7 +1034,9 @@ export default function InvestigatorWorkspace(){
                 <div><span className="label">Time window</span><strong>{activeInvestigation.scope.earliest||"—"} → {activeInvestigation.scope.latest||"—"}</strong></div>
                 <div><span className="label">Focus</span><strong>{activeInvestigation.scope.focus||"—"}</strong></div>
               </div>}
-              <div className="investigation-report-text">{activeInvestigation.report||"The report will be assembled as the agent analyzes the conversation and evidence."}</div>
+              <div className="investigation-report-text">
+                <MarkdownMessage content={activeInvestigation.report||"The report will be assembled as the agent analyzes the conversation and evidence."}/>
+              </div>
               {finalEvidenceSearch&&<section className="final-evidence-query" aria-labelledby="final-evidence-query-title">
                 <div className="final-evidence-query-header">
                   <div><div className="eyebrow">FINAL EVIDENCE QUERY</div><h4 id="final-evidence-query-title">Verify the conclusion in Splunk</h4></div>
