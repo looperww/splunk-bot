@@ -110,6 +110,19 @@ export type InvestigationLearning={
   lastUsedAt:string|null;
 };
 
+export type InvestigationLearningDraft={
+  title:string;
+  detectionFamily:string;
+  classification:DecisionClassification;
+  baseSeverity:"critical"|"high"|"medium"|"low";
+  reason:string;
+  scope:Record<string,unknown>;
+  supportingSignals:string[];
+  exclusions:string[];
+  confidence:number;
+  model:string;
+};
+
 export type InvestigationRecord={
   id:string;
   kind:InvestigationKind;
