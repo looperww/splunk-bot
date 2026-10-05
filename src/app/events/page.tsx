@@ -22,6 +22,13 @@ function urgencyRank(value:string|undefined):number|null{
   return null;
 }
 
+function urgencyTone(value:string|undefined):string{
+  const normalized=value?.trim().toLowerCase()??"";
+  if(/critical|urgent|severe|high/.test(normalized)) return "severity-high";
+  if(/medium|moderate/.test(normalized)) return "severity-medium";
+  return "severity-low";
+}
+
 export default function EventsPage(){
   const router=useRouter();
   const {selectedConnection,selectedEvent,setSelectedEvent}=useAppState();
@@ -57,6 +64,11 @@ export default function EventsPage(){
       setError(reason instanceof Error?reason.message:"Failed to load AME events.");
     }finally{setLoading(false);}
   }
+
+  useEffect(()=>{
+    const initialSearch=new URLSearchParams(window.location.search).get("search");
+    if(initialSearch) setSearch(initialSearch);
+  },[]);
 
   useEffect(()=>{
     void loadEvents(false);
@@ -139,6 +151,9 @@ export default function EventsPage(){
       <button className="secondary-button" disabled={page+1>=pageCount} onClick={()=>setPage((value)=>Math.min(pageCount-1,value+1))}>Next</button>
     </div>
     <div className="table-panel panel">
+      <div className="table-header event-table-header" aria-hidden="true">
+        <span>Event</span><span>Status</span><span>Urgency</span><span>Created</span><span>Actions</span>
+      </div>
       {visible.map((event)=>{
         const expanded=expandedId===event.id;
         return <div className={"event-row-group "+(expanded?"expanded":"")} key={event.id}>
@@ -148,7 +163,7 @@ export default function EventsPage(){
           >
             <div className="table-main"><strong>{event.title}</strong><small>{event.id}</small></div>
             <span>{event.status??"Unknown"}</span>
-            <span>{event.urgency??"Unknown"}</span>
+            <span className={"severity-badge "+urgencyTone(event.urgency)}>{event.urgency??"Unknown"}</span>
             <time dateTime={event.created} title={event.created}>{formatTimestamp(event.created)}</time>
             <div className="event-row-actions">
               <button className="secondary-button" aria-expanded={expanded} onClick={(clickEvent)=>{clickEvent.stopPropagation();toggleEvent(event.id);}}>{expanded?"Hide details":"Details"}</button>

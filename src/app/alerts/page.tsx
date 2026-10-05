@@ -117,6 +117,9 @@ export default function AlertsPage(){
       <button className="secondary-button" disabled={page+1>=pageCount} onClick={()=>setPage((value)=>Math.min(pageCount-1,value+1))}>Next</button>
     </div>
     <div className="table-panel panel">
+      <div className="table-header alert-list-header" aria-hidden="true">
+        <span>Alert</span><span>App</span><span>Schedule</span><span>State</span><span>Actions</span>
+      </div>
       {visible.map((alert)=>{
         const expanded=expandedId===alert.id;
         const detail=details[alert.id];
