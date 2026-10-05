@@ -11,6 +11,7 @@ import type {
   AgentBudget,
   AmeEvent,
   ChatMessage,
+  ClosedInvestigationMatch,
   ClosureSuggestion,
   DecisionClassification,
   IncidentContext,
@@ -174,6 +175,7 @@ export default function InvestigatorWorkspace(){
   const [eventDetailsOpen,setEventDetailsOpen]=useState(false);
   const [eventError,setEventError]=useState("");
   const [error,setError]=useState("");
+  const [notice,setNotice]=useState("");
   const [scenarioDialogOpen,setScenarioDialogOpen]=useState(false);
   const [scenarios,setScenarios]=useState<Scenario[]>([]);
   const [scenarioLoading,setScenarioLoading]=useState(false);
@@ -205,6 +207,12 @@ export default function InvestigatorWorkspace(){
   const [bulkCloseOpen,setBulkCloseOpen]=useState(false);
   const [bulkClosing,setBulkClosing]=useState(false);
   const [bulkCloseNotification,setBulkCloseNotification]=useState<InvestigationClosureNotification|null>(null);
+  const [priorCloseOpen,setPriorCloseOpen]=useState(false);
+  const [priorCloseLoading,setPriorCloseLoading]=useState(false);
+  const [priorCloseMatches,setPriorCloseMatches]=useState<ClosedInvestigationMatch[]>([]);
+  const [priorCloseSelectedId,setPriorCloseSelectedId]=useState("");
+  const [pendingAlert,setPendingAlert]=useState<AmeEvent|null>(null);
+  const [reusingPriorClose,setReusingPriorClose]=useState(false);
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const activeChatAgent=agents.find((agent)=>agent.id===(activeInvestigation?.agentId??agentId))??selectedAgent;
@@ -301,7 +309,7 @@ export default function InvestigatorWorkspace(){
   },[selectedEvent?.id]);
 
   useEffect(()=>{
-    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen&&!closureReviewOpen&&!learningReviewOpen&&!bulkCloseOpen) return;
+    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen&&!closureReviewOpen&&!learningReviewOpen&&!bulkCloseOpen&&!priorCloseOpen) return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
     function onKeyDown(event:KeyboardEvent){
@@ -311,6 +319,7 @@ export default function InvestigatorWorkspace(){
         setIntakeOpen(false);
         setReportConfirmOpen(false);
         setBulkCloseOpen(false);
+        setPriorCloseOpen(false);
         if(!savingClosure&&!learningDraftLoading&&!savingLearning){
           setClosureReviewOpen(false);
           setLearningReviewOpen(false);
@@ -322,7 +331,7 @@ export default function InvestigatorWorkspace(){
       document.body.style.overflow=previous;
       window.removeEventListener("keydown",onKeyDown);
     };
-  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen,closureReviewOpen,learningReviewOpen,bulkCloseOpen,savingClosure,learningDraftLoading,savingLearning]);
+  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen,closureReviewOpen,learningReviewOpen,bulkCloseOpen,priorCloseOpen,savingClosure,learningDraftLoading,savingLearning]);
 
   function chooseAgent(id:string){
     setAgentId(id);
@@ -412,21 +421,97 @@ export default function InvestigatorWorkspace(){
     }
   }
 
-  async function investigateEvent(){
-    if(!selectedEvent) return;
+  async function startAlertInvestigation(event:AmeEvent){
     const investigation=await createInvestigation({
       kind:"alert",
-      title:selectedEvent.title||"Alert Manager event "+selectedEvent.id,
-      description:"Alert Manager event "+selectedEvent.id+
-        (selectedEvent.urgency?" · "+selectedEvent.urgency+" urgency":"")+".",
-      sourceEventId:selectedEvent.id,
-      eventContext:eventContext(selectedEvent),
+      title:event.title||"Alert Manager event "+event.id,
+      description:"Alert Manager event "+event.id+
+        (event.urgency?" · "+event.urgency+" urgency":"")+".",
+      sourceEventId:event.id,
+      eventContext:eventContext(event),
     });
     if(investigation){
       await kickoffInvestigation(
         investigation,
         "Start the investigation for this Alert Manager event. Ask me the minimum high-value questions needed to establish the objective, target, and time window before searching Splunk.",
       );
+    }
+  }
+
+  async function investigateEvent(){
+    if(!selectedEvent||priorCloseLoading) return;
+    setError("");
+    setNotice("");
+    setPriorCloseLoading(true);
+    try{
+      const response=await fetch("/api/investigations/matches",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          kind:"alert",
+          title:selectedEvent.title||"Alert Manager event "+selectedEvent.id,
+          connectionId:selectedConnection?.id,
+          eventContext:eventContext(selectedEvent),
+        }),
+      });
+      const data=await response.json() as {matches?:ClosedInvestigationMatch[];error?:string};
+      if(!response.ok) throw new Error(data.error??"Failed to check previous investigations.");
+      if(data.matches?.length){
+        setPendingAlert(selectedEvent);
+        setPriorCloseMatches(data.matches);
+        setPriorCloseSelectedId(data.matches[0].id);
+        setPriorCloseOpen(true);
+        return;
+      }
+      await startAlertInvestigation(selectedEvent);
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to check previous investigations.");
+    }finally{
+      setPriorCloseLoading(false);
+    }
+  }
+
+  async function investigateAlertDespiteHistory(){
+    if(!pendingAlert||priorCloseLoading||reusingPriorClose) return;
+    const event=pendingAlert;
+    setPriorCloseOpen(false);
+    setPendingAlert(null);
+    setPriorCloseMatches([]);
+    await startAlertInvestigation(event);
+  }
+
+  async function closeAlertWithPreviousDecision(){
+    if(!pendingAlert||!selectedConnection||reusingPriorClose) return;
+    const previous=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
+    if(!previous) return;
+    setReusingPriorClose(true);
+    setError("");
+    setNotice("");
+    try{
+      const response=await fetch("/api/investigations/reuse-closure",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          previousInvestigationId:previous.id,
+          title:pendingAlert.title||"Alert Manager event "+pendingAlert.id,
+          description:"Alert Manager event "+pendingAlert.id+
+            (pendingAlert.urgency?" · "+pendingAlert.urgency+" urgency":"")+".",
+          sourceEventId:pendingAlert.id,
+          connectionId:selectedConnection.id,
+          eventContext:eventContext(pendingAlert),
+        }),
+      });
+      const data=await response.json() as {investigation?:InvestigationRecord;error?:string};
+      if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to reuse the previous decision.");
+      setInvestigations((current)=>[data.investigation!,...current.filter((item)=>item.id!==data.investigation!.id)]);
+      setPriorCloseOpen(false);
+      setPendingAlert(null);
+      setPriorCloseMatches([]);
+      setNotice(`Closed this alert as ${decisionLabel(previous.closureClassification)} using the previous analyst decision.`);
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to reuse the previous decision.");
+    }finally{
+      setReusingPriorClose(false);
     }
   }
 
@@ -925,6 +1010,9 @@ export default function InvestigatorWorkspace(){
     setClosureReviewOpen(false);
     setLearningReviewOpen(false);
     setBulkCloseOpen(false);
+    setPriorCloseOpen(false);
+    setPendingAlert(null);
+    setPriorCloseMatches([]);
     setLearningDraft(null);
     setActiveInvestigation(null);
     setQuestions([]);
@@ -961,6 +1049,7 @@ export default function InvestigatorWorkspace(){
     </header>
 
     {error&&<div className="error-box">{error}</div>}
+    {notice&&<div className="notice-box" role="status">{notice}</div>}
     {!selectedConnection&&
       <div className="notice-box">No Splunk connection selected. <Link href="/settings">Open Settings</Link>.</div>}
 
@@ -994,7 +1083,7 @@ export default function InvestigatorWorkspace(){
           <input value={eventId} onChange={(event)=>setEventId(event.target.value)} onKeyDown={(event)=>{if(event.key==="Enter") void fetchEvent();}} placeholder="Enter the Alert Manager event ID"/>
         </label>
         <button className="secondary-button" type="button" onClick={()=>void fetchEvent()} disabled={fetchingEvent||!selectedConnection}>{fetchingEvent?"Fetching…":"Fetch event"}</button>
-        {selectedEvent&&<button className="primary-button" type="button" onClick={()=>void investigateEvent()}>Investigate</button>}
+        {selectedEvent&&<button className="primary-button" type="button" onClick={()=>void investigateEvent()} disabled={priorCloseLoading}>{priorCloseLoading?"Checking history…":"Investigate"}</button>}
       </div>
       {eventError&&<div className="error-box event-fetch-error">{eventError}</div>}
       {selectedEvent&&<button
@@ -1050,6 +1139,45 @@ export default function InvestigatorWorkspace(){
           :<div className="investigation-list">{closed.map(investigationCard)}</div>}
       </div>
     </section>
+
+    {priorCloseOpen&&pendingAlert&&priorCloseMatches.length>0&&<div className="modal-backdrop prior-close-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!reusingPriorClose) setPriorCloseOpen(false);}}>
+      <section className="panel modal-dialog prior-close-dialog" role="dialog" aria-modal="true" aria-labelledby="prior-close-title" onMouseDown={(event)=>event.stopPropagation()}>
+        <div className="prior-close-header">
+          <div>
+            <div className="eyebrow">PREVIOUS ALERT DECISION</div>
+            <h2 id="prior-close-title">This alert was investigated before</h2>
+            <p>The new alert matches <strong>{priorCloseMatches.length}</strong> previously closed investigation{priorCloseMatches.length===1?"":"s"}, apart from time and identifier fields. Review the prior decision before starting another AI chat.</p>
+          </div>
+          <button className="icon-button" type="button" onClick={()=>setPriorCloseOpen(false)} disabled={reusingPriorClose} aria-label="Close">×</button>
+        </div>
+
+        {priorCloseMatches.length>1&&<label className="prior-close-select">
+          <span className="label">Previous investigation to reuse</span>
+          <select value={priorCloseSelectedId} onChange={(event)=>setPriorCloseSelectedId(event.target.value)} disabled={reusingPriorClose}>
+            {priorCloseMatches.map((match)=><option value={match.id} key={match.id}>{match.title} · {decisionLabel(match.closureClassification)} · closed {formatDate(match.updatedAt)}</option>)}
+          </select>
+        </label>}
+
+        {(()=>{
+          const previous=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
+          return <div className="prior-close-decision">
+            <div className="prior-close-decision-heading"><span className="label">Decision from the selected investigation</span><span className={"prior-close-classification "+previous.closureClassification}>{decisionLabel(previous.closureClassification)}</span></div>
+            <p>{previous.closureReason}</p>
+            <small>Closed {formatDate(previous.updatedAt)} · {previous.sourceEventId?`Source event ${previous.sourceEventId}`:"No source event ID"}</small>
+          </div>;
+        })()}
+
+        <div className="prior-close-note">
+          <ShieldCheckIcon size={19} weight="duotone"/>
+          <span>Reuse closes this new Splunk Bot investigation immediately with the selected severity or false-positive reason. It does not start an AI search and does not change the status in Splunk AME.</span>
+        </div>
+
+        <div className="closure-review-footer">
+          <button className="secondary-button" type="button" onClick={()=>void investigateAlertDespiteHistory()} disabled={reusingPriorClose}>Investigate anyway</button>
+          <button className="primary-button" type="button" onClick={()=>void closeAlertWithPreviousDecision()} disabled={reusingPriorClose}>{reusingPriorClose?"Closing alert…":"Close with this decision"}</button>
+        </div>
+      </section>
+    </div>}
 
     {scenarioDialogOpen&&<div className="modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget) closeDialogs();}}>
       <section className="panel modal-dialog scenario-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="scenario-picker-title">
