@@ -57,6 +57,39 @@ function formatDate(value:string|null|undefined){
   return date.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"});
 }
 
+function formatSplQuery(query:string):string{
+  let formatted="";
+  let quote="";
+  let escaped=false;
+  for(const character of query.trim()){
+    if(escaped){
+      formatted+=character;
+      escaped=false;
+      continue;
+    }
+    if(character==="\\"&&quote){
+      formatted+=character;
+      escaped=true;
+      continue;
+    }
+    if((character==="\""||character==="'")&&(quote===character||!quote)){
+      quote=quote?"":character;
+      formatted+=character;
+      continue;
+    }
+    if(character==="|"&&!quote){
+      formatted=formatted.trimEnd()+"\n| ";
+      continue;
+    }
+    formatted+=character;
+  }
+  return formatted
+    .split("\n")
+    .map((line)=>line.trimEnd())
+    .join("\n")
+    .trim();
+}
+
 function decisionLabel(value:DecisionClassification):string{
   return value==="false_positive"?"False positive":value.charAt(0).toUpperCase()+value.slice(1);
 }
@@ -150,6 +183,7 @@ export default function InvestigatorWorkspace(){
   const [learningDraftLoading,setLearningDraftLoading]=useState(false);
   const [savingLearning,setSavingLearning]=useState(false);
   const [learningDraft,setLearningDraft]=useState<InvestigationLearningDraft|null>(null);
+  const [copiedQueryId,setCopiedQueryId]=useState("");
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const ongoing=useMemo(
@@ -160,6 +194,10 @@ export default function InvestigatorWorkspace(){
     ()=>investigations.filter((item)=>item.status==="closed"),
     [investigations],
   );
+  const finalEvidenceSearch=useMemo(()=>{
+    const searches=activeInvestigation?.searches??[];
+    return [...searches].reverse().find((search)=>search.phase==="confirmation")??searches[searches.length-1]??null;
+  },[activeInvestigation?.searches]);
 
   useEffect(()=>{
     void fetch("/api/agents",{cache:"no-store"})
@@ -711,6 +749,29 @@ export default function InvestigatorWorkspace(){
     }
   }
 
+  async function copySplQuery(search:SearchAudit){
+    try{
+      if(navigator.clipboard?.writeText){
+        await navigator.clipboard.writeText(search.query);
+      }else{
+        const textarea=document.createElement("textarea");
+        textarea.value=search.query;
+        textarea.setAttribute("readonly","");
+        textarea.style.position="fixed";
+        textarea.style.opacity="0";
+        document.body.appendChild(textarea);
+        textarea.select();
+        const copied=document.execCommand("copy");
+        textarea.remove();
+        if(!copied) throw new Error("copy failed");
+      }
+      setCopiedQueryId(search.searchId);
+      window.setTimeout(()=>setCopiedQueryId((current)=>current===search.searchId?"":current),1800);
+    }catch{
+      setError("The query could not be copied. Select it and copy it manually.");
+    }
+  }
+
   function closeDialogs(){
     if(sending||deleting||generatingReport||savingClosure||learningDraftLoading||savingLearning) return;
     setDialogOpen(false);
@@ -974,6 +1035,15 @@ export default function InvestigatorWorkspace(){
                 <div><span className="label">Focus</span><strong>{activeInvestigation.scope.focus||"—"}</strong></div>
               </div>}
               <div className="investigation-report-text">{activeInvestigation.report||"The report will be assembled as the agent analyzes the conversation and evidence."}</div>
+              {finalEvidenceSearch&&<section className="final-evidence-query" aria-labelledby="final-evidence-query-title">
+                <div className="final-evidence-query-header">
+                  <div><div className="eyebrow">FINAL EVIDENCE QUERY</div><h4 id="final-evidence-query-title">Verify the conclusion in Splunk</h4></div>
+                  <button className="secondary-button query-copy-button" type="button" onClick={()=>void copySplQuery(finalEvidenceSearch)}>{copiedQueryId===finalEvidenceSearch.searchId?"Copied":"Copy SPL"}</button>
+                </div>
+                <p>Run the final {finalEvidenceSearch.phase} search to reproduce the evidence shown above. Set the Splunk time picker to <strong>{finalEvidenceSearch.earliest||activeInvestigation.scope?.earliest||"the investigation start"}</strong> through <strong>{finalEvidenceSearch.latest||activeInvestigation.scope?.latest||"now"}</strong>.</p>
+                <pre className="final-evidence-query-code"><code>{formatSplQuery(finalEvidenceSearch.query)}</code></pre>
+                <small>{finalEvidenceSearch.resultCount} result rows{finalEvidenceSearch.truncated?" · result set truncated":""}{finalEvidenceSearch.cached?" · reused from cache":""}. The copied text is the exact SPL sent to Splunk.</small>
+              </section>}
               {activeInvestigation.searches.length>0&&<div className="investigation-evidence-list">
                 {activeInvestigation.searches.map((search)=><details className="investigation-evidence-card" key={search.searchId}>
                   <summary><span>{search.phase} · {search.resultCount} results{search.cached?" · cached":""}</span><code>{search.searchId.slice(0,8)}</code></summary>

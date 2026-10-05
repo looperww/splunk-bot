@@ -10,6 +10,8 @@ export type LocalInvestigationResult={
   searches:Array<{
     searchId:string;
     query:string;
+    earliest?:string;
+    latest?:string;
     resultCount:number;
     truncated:boolean;
     phase:"baseline"|"pivot"|"confirmation";
@@ -181,6 +183,8 @@ export async function investigateLocally(
     searches.push({
       searchId:result.searchId,
       query:result.query,
+      earliest:result.earliest,
+      latest:result.latest,
       resultCount:result.results.length,
       truncated:result.truncated,
       phase:"baseline",
@@ -216,6 +220,8 @@ export async function investigateLocally(
     searches.push({
       searchId:result.searchId,
       query:result.query,
+      earliest:result.earliest,
+      latest:result.latest,
       resultCount:result.results.length,
       truncated:result.truncated,
       phase:"pivot",
