@@ -20,7 +20,9 @@ import {
   type Icon,
 } from "@phosphor-icons/react";
 import type { StoredSplunkConnection } from "@/lib/connections";
-import type { AmeEvent, IncidentContext } from "@/lib/types";
+import type { AmeEvent, IncidentContext, InvestigationClosureNotification } from "@/lib/types";
+
+const NOTIFICATION_STORAGE_KEY="splunk-bot-closure-notifications";
 
 type AppState={
   selectedConnection:StoredSplunkConnection|null;
@@ -29,6 +31,9 @@ type AppState={
   setSelectedEvent:(event:AmeEvent|null)=>void;
   selectedIncident:IncidentContext|null;
   setSelectedIncident:(incident:IncidentContext|null)=>void;
+  notifications:InvestigationClosureNotification[];
+  addNotification:(notification:InvestigationClosureNotification)=>void;
+  dismissNotification:(id:string)=>void;
 };
 
 const AppStateContext=createContext<AppState|null>(null);
@@ -68,6 +73,8 @@ export default function AppShell({children}:{children:React.ReactNode}){
   const [selectedEvent,setEvent]=useState<AmeEvent|null>(null);
   const [selectedIncident,setIncident]=useState<IncidentContext|null>(null);
   const [globalSearch,setGlobalSearch]=useState("");
+  const [notifications,setNotifications]=useState<InvestigationClosureNotification[]>([]);
+  const [notificationsOpen,setNotificationsOpen]=useState(false);
 
   useEffect(()=>{
     if(pathname==="/login"){
@@ -120,6 +127,17 @@ export default function AppShell({children}:{children:React.ReactNode}){
       .catch(()=>{});
   },[authStatus]);
 
+  useEffect(()=>{
+    if(authStatus!=="authenticated") return;
+    try{
+      const raw=localStorage.getItem(NOTIFICATION_STORAGE_KEY);
+      const parsed=raw?JSON.parse(raw):[];
+      if(Array.isArray(parsed)) setNotifications(parsed as InvestigationClosureNotification[]);
+    }catch{
+      setNotifications([]);
+    }
+  },[authStatus]);
+
   async function signOut(){
     try{await fetch("/api/auth/logout",{method:"POST"});}
     finally{
@@ -146,6 +164,22 @@ export default function AppShell({children}:{children:React.ReactNode}){
     else sessionStorage.removeItem("splunk-bot-selected-incident");
   }
 
+  function addNotification(notification:InvestigationClosureNotification){
+    setNotifications((current)=>{
+      const next=[notification,...current.filter((item)=>item.id!==notification.id)];
+      localStorage.setItem(NOTIFICATION_STORAGE_KEY,JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function dismissNotification(id:string){
+    setNotifications((current)=>{
+      const next=current.filter((item)=>item.id!==id);
+      localStorage.setItem(NOTIFICATION_STORAGE_KEY,JSON.stringify(next));
+      return next;
+    });
+  }
+
   function searchEvents(event:FormEvent<HTMLFormElement>){
     event.preventDefault();
     const query=globalSearch.trim();
@@ -160,7 +194,10 @@ export default function AppShell({children}:{children:React.ReactNode}){
     setSelectedEvent,
     selectedIncident,
     setSelectedIncident,
-  }),[selectedConnection,selectedEvent,selectedIncident]);
+    notifications,
+    addNotification,
+    dismissNotification,
+  }),[selectedConnection,selectedEvent,selectedIncident,notifications]);
 
   if(pathname==="/login") return <>{children}</>;
   if(authStatus!=="authenticated") return <div className="auth-loading">Checking your session…</div>;
@@ -219,9 +256,41 @@ export default function AppShell({children}:{children:React.ReactNode}){
             />
             <kbd>Enter</kbd>
           </form>
-          <div className="topbar-status">
-            <span className={"status-dot "+(selectedConnection?"online":"")}/>
-            <span>{selectedConnection?.name??"No Splunk connection"}</span>
+          <div className="topbar-actions">
+            <div className="topbar-notifications">
+              <button
+                className="notification-button"
+                type="button"
+                aria-label={notifications.length?`${notifications.length} investigation notifications`:"Investigation notifications"}
+                aria-expanded={notificationsOpen}
+                onClick={()=>setNotificationsOpen((current)=>!current)}
+              >
+                <BellIcon size={18} weight={notifications.length?"fill":"regular"}/>
+                {notifications.length>0&&<span className="notification-count">{notifications.length>99?"99+":notifications.length}</span>}
+              </button>
+              {notificationsOpen&&<div className="notifications-popover" role="dialog" aria-label="Investigation notifications">
+                <div className="notifications-popover-heading">
+                  <div><span className="eyebrow">FOLLOW-UP</span><strong>Investigation notifications</strong></div>
+                  {notifications.length>0&&<span className="count">{notifications.length}</span>}
+                </div>
+                {notifications.length===0
+                  ?<p className="notifications-empty">No pending follow-up notifications.</p>
+                  :<div className="notifications-list">
+                    {notifications.map((notification)=><article className="notification-item" key={notification.id}>
+                      <div className="notification-item-copy">
+                        <strong>{notification.matches.length} matching investigation{notification.matches.length===1?"":"s"} still open</strong>
+                        <span>{notification.sourceTitle}</span>
+                        <small>{new Date(notification.createdAt).toLocaleString()}</small>
+                      </div>
+                      <button className="secondary-button" type="button" onClick={()=>{setNotificationsOpen(false);window.dispatchEvent(new CustomEvent("splunk-bot-open-notification",{detail:notification.id}));router.push("/dashboard?notification="+encodeURIComponent(notification.id));}}>Review</button>
+                    </article>)}
+                  </div>}
+              </div>}
+            </div>
+            <div className="topbar-status">
+              <span className={"status-dot "+(selectedConnection?"online":"")}/>
+              <span>{selectedConnection?.name??"No Splunk connection"}</span>
+            </div>
           </div>
         </header>
         <div className="app-content">{children}</div>

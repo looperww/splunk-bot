@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { draftInvestigationLearning } from "@/lib/ai";
 import { getCurrentUser } from "@/lib/auth";
-import { getInvestigation, updateInvestigation } from "@/lib/investigations";
+import { findMatchingOpenInvestigations, getInvestigation, updateInvestigation } from "@/lib/investigations";
 import { DECISION_CLASSIFICATIONS, saveLearning } from "@/lib/learnings";
 import type { DecisionClassification } from "@/lib/types";
 
@@ -53,6 +53,7 @@ export async function POST(request:NextRequest,context:RouteContext){
     if(!investigation){
       return NextResponse.json({error:"Investigation not found."},{status:404});
     }
+    const matchingInvestigations=await findMatchingOpenInvestigations(investigation);
     const reviewed=body.learning;
     const reviewedClassification=reviewed?.classification===undefined
       ?classification
@@ -106,7 +107,7 @@ export async function POST(request:NextRequest,context:RouteContext){
       closureClassification:draft.classification,
       closureReason:reason,
     });
-    return NextResponse.json({investigation:updated,learning});
+    return NextResponse.json({investigation:updated,learning,matchingInvestigations});
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to close the investigation."},
