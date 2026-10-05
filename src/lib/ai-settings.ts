@@ -1,6 +1,7 @@
 import { ensureSchema, query } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { decryptToken, encryptToken, last4Token } from "@/lib/secrets";
+import { describeOutboundFetchError } from "@/lib/outbound-http";
 
 export type AiSettings={
   provider:"mock"|"openai";
@@ -136,14 +137,20 @@ export async function saveAiSettings(input:{
 }
 
 export async function fetchOpenAiModels(apiKey:string):Promise<AiModel[]>{
-  const response=await fetch("https://api.openai.com/v1/models",{
-    method:"GET",
-    headers:{
-      Authorization:"Bearer "+apiKey,
-      Accept:"application/json",
-    },
-    cache:"no-store",
-  });
+  let response:Response;
+  try{
+    response=await fetch("https://api.openai.com/v1/models",{
+      method:"GET",
+      headers:{
+        Authorization:"Bearer "+apiKey,
+        Accept:"application/json",
+      },
+      cache:"no-store",
+      signal:AbortSignal.timeout(20_000),
+    });
+  }catch(error){
+    throw new Error(describeOutboundFetchError("OpenAI",error));
+  }
   const text=await response.text();
   if(!response.ok){
     throw new Error("OpenAI API request failed ("+response.status+"): "+text.slice(0,600));

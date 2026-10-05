@@ -12,6 +12,7 @@ import {
 import { selectDatabaseSkills } from "@/lib/skills";
 import { buildKnowledgePrompt, getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import { buildLearningPrompt, listLearnings } from "@/lib/learnings";
+import { describeOutboundFetchError } from "@/lib/outbound-http";
 import {
   AGENT_CONFIG,
   buildAgentPrompt,
@@ -174,15 +175,21 @@ async function callAI(
   if(previousResponseId) body.previous_response_id=previousResponseId;
   if(toolChoice) body.tool_choice=toolChoice;
 
-  const response=await fetch("https://api.openai.com/v1/responses",{
-    method:"POST",
-    headers:{
-      Authorization:"Bearer "+apiKey,
-      "Content-Type":"application/json",
-    },
-    body:JSON.stringify(body),
-    cache:"no-store",
-  });
+  let response:Response;
+  try{
+    response=await fetch("https://api.openai.com/v1/responses",{
+      method:"POST",
+      headers:{
+        Authorization:"Bearer "+apiKey,
+        "Content-Type":"application/json",
+      },
+      body:JSON.stringify(body),
+      cache:"no-store",
+      signal:AbortSignal.timeout(60_000),
+    });
+  }catch(error){
+    throw new Error(describeOutboundFetchError("OpenAI",error));
+  }
 
   const text=await response.text();
   if(!response.ok){

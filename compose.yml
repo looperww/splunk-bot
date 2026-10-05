@@ -41,6 +41,14 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
       DEMO_MODE: ${DEMO_MODE:-false}
+      # Node 24 only honors HTTP(S)_PROXY for fetch when this flag is enabled.
+      NODE_USE_ENV_PROXY: "1"
+      HTTP_PROXY: ${HTTP_PROXY:-${http_proxy:-}}
+      HTTPS_PROXY: ${HTTPS_PROXY:-${https_proxy:-}}
+      NO_PROXY: ${NO_PROXY:-${no_proxy:-localhost,127.0.0.1,splunk-bot-db}}
+      http_proxy: ${HTTP_PROXY:-${http_proxy:-}}
+      https_proxy: ${HTTPS_PROXY:-${https_proxy:-}}
+      no_proxy: ${NO_PROXY:-${no_proxy:-localhost,127.0.0.1,splunk-bot-db}}
     ports:
       - "0.0.0.0:3456:3000"
     depends_on:
