@@ -6,6 +6,7 @@ type DetailFieldsProps={
 };
 
 type FlatField={path:string;value:unknown};
+type DetailGroup={name:string;fields:FlatField[]};
 
 function isRecord(value:unknown):value is Record<string,unknown>{
   return Boolean(value)&&typeof value==="object"&&!Array.isArray(value);
@@ -84,19 +85,49 @@ function fieldTone(path:string,value:unknown):string{
   return "slate";
 }
 
+function valueType(value:unknown):string{
+  if(value===null||value===undefined) return "empty";
+  if(Array.isArray(value)) return "list";
+  if(typeof value==="object") return "object";
+  return typeof value;
+}
+
+function groupFields(fields:FlatField[]):DetailGroup[]{
+  const groups=new Map<string,FlatField[]>();
+  for(const field of fields){
+    const separator=field.path.indexOf(".");
+    const group=separator===-1?"Event overview":field.path.slice(0,separator);
+    const current=groups.get(group)??[];
+    current.push(field);
+    groups.set(group,current);
+  }
+  return [...groups.entries()].map(([name,groupFields])=>({name,fields:groupFields}));
+}
+
 export default function DetailFields({data,emptyMessage="No additional details."}:DetailFieldsProps){
   const fields:FlatField[]=[];
   flatten(data,"",fields);
   if(!fields.length) return <div className="empty">{emptyMessage}</div>;
 
-  return <dl className="detail-fields">
-    {fields.map((field)=>{
-      const value=displayValue(field.path,field.value);
-      const multiline=value.includes("\n")||value.length>180;
-      return <div className={"detail-field tone-"+fieldTone(field.path,field.value)} key={field.path}>
-        <dt>{fieldLabel(field.path)}</dt>
-        <dd>{multiline?<pre>{value}</pre>:<span>{value}</span>}</dd>
-      </div>;
-    })}
-  </dl>;
+  return <div className="detail-field-sections">
+    {groupFields(fields).map((group)=><section className="detail-field-section" key={group.name}>
+      <header className="detail-field-section-heading">
+        <div><span className="eyebrow">DETAIL GROUP</span><h4>{fieldLabel(group.name)}</h4></div>
+        <span>{group.fields.length} {group.fields.length===1?"field":"fields"}</span>
+      </header>
+      <dl className="detail-fields">
+        {group.fields.map((field)=>{
+          const value=displayValue(field.path,field.value);
+          const multiline=value.includes("\n")||value.length>180;
+          const label=group.name==="Event overview"
+            ?fieldLabel(field.path)
+            :fieldLabel(field.path.startsWith(group.name+".")?field.path.slice(group.name.length+1):field.path);
+          return <div className={"detail-field tone-"+fieldTone(field.path,field.value)} key={field.path}>
+            <dt><span>{label}</span><small>{valueType(field.value)}</small></dt>
+            <dd>{multiline?<pre>{value}</pre>:<span>{value}</span>}</dd>
+          </div>;
+        })}
+      </dl>
+    </section>)}
+  </div>;
 }
