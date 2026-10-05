@@ -102,6 +102,25 @@ You can verify:
 
 The local mode is deterministic and is not a substitute for the model-driven investigator. Add an OpenAI key later to enable model-driven investigation planning and multi-step reasoning.
 
+### OpenAI access through a corporate proxy
+
+The application container enables Node's environment-proxy support. If the server must use a proxy for Internet access, set the following in `.env` before rebuilding:
+
+```text
+HTTPS_PROXY=http://proxy.example.com:8080
+HTTP_PROXY=http://proxy.example.com:8080
+NO_PROXY=localhost,127.0.0.1,splunk-bot-db,.bce.lu
+```
+
+Then recreate the application container so the runtime receives the variables:
+
+```text
+docker compose -f compose.yml up -d --build --force-recreate splunk-bot
+docker compose -f compose.yml exec splunk-bot node -e 'fetch("https://api.openai.com/v1/models").then(r=>console.log(r.status)).catch(e=>console.error(e.cause||e))'
+```
+
+An HTTP `401` from this command is expected without an Authorization header and confirms that DNS, proxy, TLS, and outbound firewall access work. A timeout indicates an egress or proxy problem. A certificate-chain error means the corporate CA must be installed in the container and configured with `NODE_EXTRA_CA_CERTS`; never disable TLS verification.
+
 ## 7. Updating
 
 cd splunk-bot
