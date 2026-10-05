@@ -30,6 +30,8 @@ export type SplunkAlert = {
 export type SearchAudit = {
   searchId:string;
   query:string;
+  earliest?:string;
+  latest?:string;
   resultCount:number;
   truncated:boolean;
   phase:"baseline"|"pivot"|"confirmation";

@@ -390,6 +390,8 @@ export async function investigate(
   const searches:Array<{
     searchId:string;
     query:string;
+    earliest?:string;
+    latest?:string;
     resultCount:number;
     truncated:boolean;
     phase:"baseline"|"pivot"|"confirmation";
@@ -461,6 +463,8 @@ export async function investigate(
         searches.push({
           searchId:result.searchId,
           query:result.query,
+          earliest:result.earliest,
+          latest:result.latest,
           resultCount:result.results.length,
           truncated:result.truncated,
           phase:args.phase,
