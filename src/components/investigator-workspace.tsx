@@ -96,6 +96,8 @@ export default function InvestigatorWorkspace(){
   const [questions,setQuestions]=useState<InvestigationQuestion[]>([]);
   const [sending,setSending]=useState(false);
   const [deleting,setDeleting]=useState(false);
+  const [reportConfirmOpen,setReportConfirmOpen]=useState(false);
+  const [generatingReport,setGeneratingReport]=useState(false);
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const ongoing=useMemo(
@@ -135,7 +137,7 @@ export default function InvestigatorWorkspace(){
   useEffect(()=>{void loadInvestigations();},[]);
 
   useEffect(()=>{
-    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen) return;
+    if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen) return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
     function onKeyDown(event:KeyboardEvent){
@@ -143,6 +145,7 @@ export default function InvestigatorWorkspace(){
         setDialogOpen(false);
         setScenarioDialogOpen(false);
         setIntakeOpen(false);
+        setReportConfirmOpen(false);
       }
     }
     window.addEventListener("keydown",onKeyDown);
@@ -150,7 +153,7 @@ export default function InvestigatorWorkspace(){
       document.body.style.overflow=previous;
       window.removeEventListener("keydown",onKeyDown);
     };
-  },[dialogOpen,scenarioDialogOpen,intakeOpen]);
+  },[dialogOpen,scenarioDialogOpen,intakeOpen,reportConfirmOpen]);
 
   function chooseAgent(id:string){
     setAgentId(id);
@@ -484,6 +487,29 @@ export default function InvestigatorWorkspace(){
     await persistInvestigation(updated);
   }
 
+  async function generateIncidentReport(){
+    if(!activeInvestigation||generatingReport) return;
+    setGeneratingReport(true);
+    setError("");
+    try{
+      const response=await fetch(
+        "/api/investigations/"+encodeURIComponent(activeInvestigation.id)+"/report",
+        {method:"POST"},
+      );
+      const data=await response.json() as {investigation?:InvestigationRecord;error?:string};
+      if(!response.ok||!data.investigation){
+        throw new Error(data.error??"Failed to generate the incident report.");
+      }
+      setActiveInvestigation(data.investigation);
+      setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
+      setReportConfirmOpen(false);
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to generate the incident report.");
+    }finally{
+      setGeneratingReport(false);
+    }
+  }
+
   async function deleteActiveInvestigation(){
     if(!activeInvestigation||deleting) return;
     if(!window.confirm("Delete this investigation? Its chat history, report, and evidence audit will be permanently removed.")){
@@ -508,10 +534,11 @@ export default function InvestigatorWorkspace(){
   }
 
   function closeDialogs(){
-    if(sending||deleting) return;
+    if(sending||deleting||generatingReport) return;
     setDialogOpen(false);
     setScenarioDialogOpen(false);
     setIntakeOpen(false);
+    setReportConfirmOpen(false);
     setActiveInvestigation(null);
     setQuestions([]);
   }
@@ -693,6 +720,12 @@ export default function InvestigatorWorkspace(){
             </div>
             <div className="investigation-dialog-actions">
               <span className={"investigation-status "+activeInvestigation.status}>{activeInvestigation.status}</span>
+              {activeInvestigation.kind==="alert"&&<button
+                className="primary-button"
+                type="button"
+                onClick={()=>setReportConfirmOpen(true)}
+                disabled={sending||generatingReport}
+              >{activeInvestigation.report?"Regenerate report":"Generate report"}</button>}
               <button className="secondary-button" type="button" onClick={()=>void setInvestigationStatus(activeInvestigation.status==="ongoing"?"closed":"ongoing")}>{activeInvestigation.status==="ongoing"?"Close investigation":"Reopen investigation"}</button>
               <button className="secondary-button" type="button" onClick={()=>void deleteActiveInvestigation()} disabled={deleting}>{deleting?"Deleting…":"Delete investigation"}</button>
               <button className="icon-button" type="button" onClick={closeDialogs} aria-label="Close">×</button>
@@ -742,6 +775,25 @@ export default function InvestigatorWorkspace(){
             </aside>
           </div>
         </>}
+      </section>
+    </div>}
+
+    {reportConfirmOpen&&activeInvestigation&&<div className="modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget&&!generatingReport) setReportConfirmOpen(false);}}>
+      <section className="panel modal-dialog report-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="report-confirm-title" onMouseDown={(event)=>event.stopPropagation()}>
+        <div className="panel-heading">
+          <div><div className="eyebrow">FINALIZE INVESTIGATION</div><h2 id="report-confirm-title">Is this investigation complete?</h2></div>
+          <button className="icon-button" type="button" onClick={()=>setReportConfirmOpen(false)} disabled={generatingReport} aria-label="Close">×</button>
+        </div>
+        <p className="modal-intro">Please confirm that you have finished providing information and answering the agent’s questions. The AI will summarize the current conversation and evidence into an incident report, then mark this investigation as closed.</p>
+        <div className="report-confirm-summary">
+          <div><span className="label">Investigation</span><strong>{activeInvestigation.title}</strong></div>
+          <div><span className="label">Conversation</span><strong>{activeInvestigation.messages.length} messages</strong></div>
+          <div><span className="label">Evidence</span><strong>{activeInvestigation.searches.length} searches recorded</strong></div>
+        </div>
+        <div className="page-heading-actions report-confirm-actions">
+          <button className="secondary-button" type="button" onClick={()=>setReportConfirmOpen(false)} disabled={generatingReport}>Continue investigation</button>
+          <button className="primary-button" type="button" onClick={()=>void generateIncidentReport()} disabled={generatingReport}>{generatingReport?"Generating report…":"Yes, generate report"}</button>
+        </div>
       </section>
     </div>}
   </main>;
