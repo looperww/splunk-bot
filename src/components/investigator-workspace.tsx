@@ -67,6 +67,37 @@ function eventContext(event:AmeEvent):Record<string,unknown>{
   };
 }
 
+function JsonValue({value,depth=0}:{value:unknown;depth?:number}):React.JSX.Element{
+  if(value===null) return <span className="json-null">null</span>;
+  if(value===undefined) return <span className="json-null">undefined</span>;
+  if(typeof value==="string") return <span className="json-string">{JSON.stringify(value)}</span>;
+  if(typeof value==="number") return <span className="json-number">{String(value)}</span>;
+  if(typeof value==="boolean") return <span className="json-boolean">{String(value)}</span>;
+
+  if(Array.isArray(value)){
+    return <span className="json-array">[
+      {value.map((item,index)=><span className="json-property" key={String(index)}>
+        {"\n"}<span className="json-indent">{"  ".repeat(depth+1)}</span>
+        <JsonValue value={item} depth={depth+1}/>{index<value.length-1?",":""}
+      </span>)}
+      {value.length>0&&<><span>{"\n"}</span><span className="json-indent">{"  ".repeat(depth)}</span></>}
+    ]</span>;
+  }
+
+  if(typeof value==="object"){
+    const entries=Object.entries(value as Record<string,unknown>);
+    return <span className="json-object">{"{"}
+      {entries.map(([key,item],index)=><span className="json-property" key={key}>
+        {"\n"}<span className="json-indent">{"  ".repeat(depth+1)}</span>
+        <span className="json-key">{JSON.stringify(key)}</span>: <JsonValue value={item} depth={depth+1}/>{index<entries.length-1?",":""}
+      </span>)}
+      {entries.length>0&&<><span>{"\n"}</span><span className="json-indent">{"  ".repeat(depth)}</span></>}
+    {"}"}</span>;
+  }
+
+  return <span className="json-null">{String(value)}</span>;
+}
+
 export default function InvestigatorWorkspace(){
   const {
     selectedConnection,
@@ -80,6 +111,7 @@ export default function InvestigatorWorkspace(){
   const [investigations,setInvestigations]=useState<InvestigationRecord[]>([]);
   const [eventId,setEventId]=useState("");
   const [fetchingEvent,setFetchingEvent]=useState(false);
+  const [eventDetailsOpen,setEventDetailsOpen]=useState(false);
   const [eventError,setEventError]=useState("");
   const [error,setError]=useState("");
   const [scenarioDialogOpen,setScenarioDialogOpen]=useState(false);
@@ -137,6 +169,10 @@ export default function InvestigatorWorkspace(){
   useEffect(()=>{void loadInvestigations();},[]);
 
   useEffect(()=>{
+    setEventDetailsOpen(false);
+  },[selectedEvent?.id]);
+
+  useEffect(()=>{
     if(!dialogOpen&&!scenarioDialogOpen&&!intakeOpen&&!reportConfirmOpen) return;
     const previous=document.body.style.overflow;
     document.body.style.overflow="hidden";
@@ -184,6 +220,7 @@ export default function InvestigatorWorkspace(){
       if(!found) throw new Error("Event "+requestedId+" was not found in the Events data. Refresh the Events page first if it is a new event.");
       setSelectedEvent(found);
       setEventId(found.id);
+      setEventDetailsOpen(false);
     }catch(reason){
       setEventError(reason instanceof Error?reason.message:"Failed to fetch event.");
     }finally{
@@ -587,7 +624,7 @@ export default function InvestigatorWorkspace(){
       <div><span className="label">Connection</span><strong>{selectedConnection?.name??"Not configured"}</strong></div>
       <div><span className="label">Event context</span><strong>{selectedEvent?.title??"No event selected"}</strong></div>
       <div><span className="label">Incident context</span><strong>{selectedIncident?.scenarioName??"No incident template"}</strong></div>
-      {selectedEvent&&<button className="secondary-button" type="button" onClick={()=>setSelectedEvent(null)}>Clear event</button>}
+      {selectedEvent&&<button className="secondary-button" type="button" onClick={()=>{setEventDetailsOpen(false);setSelectedEvent(null);}}>Clear event</button>}
       {selectedIncident&&<button className="secondary-button" type="button" onClick={()=>setSelectedIncident(null)}>Clear incident</button>}
     </section>
 
@@ -610,12 +647,36 @@ export default function InvestigatorWorkspace(){
         {selectedEvent&&<button className="primary-button" type="button" onClick={()=>void investigateEvent()}>Investigate</button>}
       </div>
       {eventError&&<div className="error-box event-fetch-error">{eventError}</div>}
-      {selectedEvent&&<div className="fetched-event-summary">
+      {selectedEvent&&<button
+        className="fetched-event-summary fetched-event-summary-button"
+        type="button"
+        onClick={()=>setEventDetailsOpen((current)=>!current)}
+        aria-expanded={eventDetailsOpen}
+        aria-controls="fetched-event-details"
+      >
         <div>
           <strong>{selectedEvent.title}</strong>
           <span className="fetched-event-id">{selectedEvent.id} · {selectedEvent.urgency??"Unknown urgency"} · {selectedEvent.status??"Unknown status"}</span>
         </div>
-        <span className="fetched-event-id">{formatDate(selectedEvent.created)}</span>
+        <span className="fetched-event-summary-side">
+          <span className="fetched-event-id">{formatDate(selectedEvent.created)}</span>
+          <span className="fetched-event-toggle">{eventDetailsOpen?"Collapse details":"Expand JSON"}</span>
+        </span>
+      </button>}
+      {selectedEvent&&eventDetailsOpen&&<div className="fetched-event-json" id="fetched-event-details">
+        <div className="fetched-event-json-heading">
+          <span className="label">Complete fetched event</span>
+          <span>Click the event summary above to collapse</span>
+        </div>
+        <pre><JsonValue value={{
+          id:selectedEvent.id,
+          title:selectedEvent.title,
+          status:selectedEvent.status??null,
+          urgency:selectedEvent.urgency??null,
+          created:selectedEvent.created??null,
+          owner:selectedEvent.owner??null,
+          raw:selectedEvent.raw,
+        }}/></pre>
       </div>}
     </section>
 
