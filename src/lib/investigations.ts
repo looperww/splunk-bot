@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ensureSchema, query } from "@/lib/db";
-import { eventMatchFingerprint } from "@/lib/event-matching";
+import { compareAlertEvents, eventMatchFingerprint, eventSourceIp } from "@/lib/event-matching";
 import type {
   AgentBudget,
   AbuseIpdbEnrichment,
@@ -134,8 +134,7 @@ export async function findMatchingClosedInvestigations(input:{
   eventContext:Record<string,unknown>|null;
   connectionId:string|null;
 }):Promise<ClosedInvestigationMatch[]>{
-  const fingerprint=eventMatchFingerprint(input);
-  if(!fingerprint||!input.connectionId) return [];
+  if(!eventMatchFingerprint(input)||!input.connectionId) return [];
   await ensureSchema();
   const rows=await query<Row>(
     `SELECT id,kind,title,description,source_event_id,event_context,
@@ -151,21 +150,26 @@ export async function findMatchingClosedInvestigations(input:{
     [input.connectionId],
   );
   return rows
-    .filter((row)=>eventMatchFingerprint({
-      kind:"alert",
-      title:String(row.title??""),
-      eventContext:recordValue(row.event_context),
-    })===fingerprint)
-    .map((row)=>({
-      id:String(row.id),
-      title:String(row.title??"Untitled investigation"),
-      description:String(row.description??""),
-      sourceEventId:row.source_event_id==null?null:String(row.source_event_id),
-      createdAt:new Date(String(row.created_at)).toISOString(),
-      updatedAt:new Date(String(row.updated_at)).toISOString(),
-      closureClassification:String(row.closure_classification) as DecisionClassification,
-      closureReason:String(row.closure_reason??""),
-    }));
+    .map((row)=>{
+      const context=recordValue(row.event_context);
+      const candidate={kind:"alert",title:String(row.title??""),eventContext:context};
+      const matchKind=compareAlertEvents(input,candidate);
+      if(!matchKind) return null;
+      return {
+        id:String(row.id),
+        title:String(row.title??"Untitled investigation"),
+        description:String(row.description??""),
+        sourceEventId:row.source_event_id==null?null:String(row.source_event_id),
+        createdAt:new Date(String(row.created_at)).toISOString(),
+        updatedAt:new Date(String(row.updated_at)).toISOString(),
+        closureClassification:String(row.closure_classification) as DecisionClassification,
+        closureReason:String(row.closure_reason??""),
+        matchKind,
+        sourceIp:eventSourceIp(context),
+      } as ClosedInvestigationMatch;
+    })
+    .filter((match):match is ClosedInvestigationMatch=>match!==null)
+    .sort((left,right)=>Number(right.matchKind==="exact")-Number(left.matchKind==="exact"));
 }
 
 export async function closeInvestigationMatches(input:{

@@ -35,7 +35,7 @@ export async function POST(request:NextRequest){
       connectionId,
       eventContext:body.eventContext,
     });
-    const previous=matches.find((match)=>match.id===previousInvestigationId);
+    const previous=matches.find((match)=>match.id===previousInvestigationId&&match.matchKind==="exact");
     if(!previous){
       return NextResponse.json({error:"That previous decision no longer matches this alert. Start a new investigation instead."},{status:409});
     }

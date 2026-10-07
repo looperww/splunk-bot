@@ -7,6 +7,7 @@ import { ShieldCheckIcon } from "@phosphor-icons/react";
 import { useAppState } from "@/components/app-shell";
 import MarkdownMessage from "@/components/markdown-message";
 import type { InvestigationAgent } from "@/lib/agents";
+import { eventSourceIp } from "@/lib/event-matching";
 import type {
   AgentBudget,
   AbuseIpdbEnrichment,
@@ -525,7 +526,7 @@ export default function InvestigatorWorkspace(){
   async function closeAlertWithPreviousDecision(){
     if(!pendingAlert||!selectedConnection||reusingPriorClose) return;
     const previous=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
-    if(!previous) return;
+    if(!previous||previous.matchKind!=="exact") return;
     setReusingPriorClose(true);
     setError("");
     setNotice("");
@@ -1242,16 +1243,16 @@ export default function InvestigatorWorkspace(){
         <div className="prior-close-header">
           <div>
             <div className="eyebrow">PREVIOUS ALERT DECISION</div>
-            <h2 id="prior-close-title">This alert was investigated before</h2>
-            <p>The new alert matches <strong>{priorCloseMatches.length}</strong> previously closed investigation{priorCloseMatches.length===1?"":"s"}, apart from time and identifier fields. Review the prior decision before starting another AI chat.</p>
+            <h2 id="prior-close-title">A previous investigation may be relevant</h2>
+            <p>Found <strong>{priorCloseMatches.length}</strong> previously closed investigation{priorCloseMatches.length===1?"":"s"} for this alert or its destination IOC. Review the details before deciding whether to investigate.</p>
           </div>
           <button className="icon-button" type="button" onClick={()=>setPriorCloseOpen(false)} disabled={reusingPriorClose} aria-label="Close">×</button>
         </div>
 
         {priorCloseMatches.length>1&&<label className="prior-close-select">
-          <span className="label">Previous investigation to reuse</span>
+          <span className="label">Previous investigation</span>
           <select value={priorCloseSelectedId} onChange={(event)=>setPriorCloseSelectedId(event.target.value)} disabled={reusingPriorClose}>
-            {priorCloseMatches.map((match)=><option value={match.id} key={match.id}>{match.title} · {decisionLabel(match.closureClassification)} · closed {formatDate(match.updatedAt)}</option>)}
+            {priorCloseMatches.map((match)=><option value={match.id} key={match.id}>{match.matchKind==="exact"?"Exact alert":"Same destination IOC"} · {decisionLabel(match.closureClassification)} · closed {formatDate(match.updatedAt)}</option>)}
           </select>
         </label>}
 
@@ -1259,6 +1260,7 @@ export default function InvestigatorWorkspace(){
           const previous=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
           return <div className="prior-close-decision">
             <div className="prior-close-decision-heading"><span className="label">Decision from the selected investigation</span><span className={"prior-close-classification "+previous.closureClassification}>{decisionLabel(previous.closureClassification)}</span></div>
+            <p><strong>{previous.matchKind==="exact"?"Exact match":"Related IOC only"}</strong>{previous.sourceIp?` · Previous source: ${previous.sourceIp}`:""}{eventSourceIp(eventContext(pendingAlert))?` · Current source: ${eventSourceIp(eventContext(pendingAlert))}`:""}</p>
             <p>{previous.closureReason}</p>
             <small>Closed {formatDate(previous.updatedAt)} · {previous.sourceEventId?`Source event ${previous.sourceEventId}`:"No source event ID"}</small>
           </div>;
@@ -1266,12 +1268,14 @@ export default function InvestigatorWorkspace(){
 
         <div className="prior-close-note">
           <ShieldCheckIcon size={19} weight="duotone"/>
-          <span>Reuse closes this new Splunk Bot investigation immediately with the selected severity or false-positive reason. It does not start an AI search and does not change the status in Splunk AME.</span>
+          <span>{(priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0]).matchKind==="exact"
+            ?"This alert matches apart from time and identifiers. Reusing the decision closes it in Splunk Bot without an AI search; Splunk AME is unchanged."
+            :"This alert shares the destination IOC but differs in other evidence, such as the source device. The earlier decision is context only; investigate this alert separately before closing it."}</span>
         </div>
 
         <div className="closure-review-footer">
           <button className="secondary-button" type="button" onClick={()=>void investigateAlertDespiteHistory()} disabled={reusingPriorClose}>Investigate anyway</button>
-          <button className="primary-button" type="button" onClick={()=>void closeAlertWithPreviousDecision()} disabled={reusingPriorClose}>{reusingPriorClose?"Closing alert…":"Close with this decision"}</button>
+          {(priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0]).matchKind==="exact"&&<button className="primary-button" type="button" onClick={()=>void closeAlertWithPreviousDecision()} disabled={reusingPriorClose}>{reusingPriorClose?"Closing alert…":"Close with this decision"}</button>}
         </div>
       </section>
     </div>}
