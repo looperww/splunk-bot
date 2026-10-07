@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { draftInvestigationLearning } from "@/lib/ai";
 import { getCurrentUser } from "@/lib/auth";
-import { closeAmeEventsLocally, findMatchingOpenAmeEvents } from "@/lib/ame-event-cache";
+import { closeAmeEventsLocally } from "@/lib/ame-event-cache";
+import { reviewOpenCachedEvents } from "@/lib/event-similarity";
 import { findMatchingOpenInvestigations, getInvestigation, updateInvestigation } from "@/lib/investigations";
 import { DECISION_CLASSIFICATIONS, saveLearning } from "@/lib/learnings";
 import type { DecisionClassification } from "@/lib/types";
@@ -116,8 +117,8 @@ export async function POST(request:NextRequest,context:RouteContext){
         reason:updated.closureReason,
       });
     }
-    const matchingEvents=await findMatchingOpenAmeEvents(updated);
-    return NextResponse.json({investigation:updated,learning,matchingInvestigations,matchingEvents});
+    const review=await reviewOpenCachedEvents(updated);
+    return NextResponse.json({investigation:updated,learning,matchingInvestigations,matchingEvents:review.matches,reviewWarning:review.warning});
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to close the investigation."},
