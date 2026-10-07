@@ -68,6 +68,12 @@ export function eventSourceIp(context:Record<string,unknown>|null):string|null{
   return source||null;
 }
 
+export function eventDestinationIp(context:Record<string,unknown>|null):string|null{
+  if(!context) return null;
+  const destination=String(notableFields(context)?.dstip??"").trim().toLowerCase();
+  return destination||null;
+}
+
 export function compareAlertEvents(current:EventMatchInput,previous:EventMatchInput):"exact"|"related_ioc"|null{
   const currentExact=eventMatchFingerprint(current);
   if(!currentExact) return null;

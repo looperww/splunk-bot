@@ -191,13 +191,22 @@ export type AmeEventClosureMatch={
   title:string;
   urgency:string|null;
   createdAt:string|null;
+  matchKind?:"exact"|"ai_similar";
+  similarityReason?:string;
+  similarityConfidence?:number;
+  canClose?:boolean;
+  sourceIp?:string|null;
+  destinationIp?:string|null;
 };
 
 export type ClosedInvestigationMatch=InvestigationMatch & {
   closureClassification:DecisionClassification;
   closureReason:string;
-  matchKind:"exact"|"related_ioc";
+  matchKind:"exact"|"related_ioc"|"ai_similar";
   sourceIp:string|null;
+  canReuse?:boolean;
+  similarityReason?:string;
+  similarityConfidence?:number;
 };
 
 export type InvestigationClosureNotification={
@@ -209,4 +218,5 @@ export type InvestigationClosureNotification={
   reason:string;
   matches:InvestigationMatch[];
   eventMatches?:AmeEventClosureMatch[];
+  reviewWarning?:string;
 };

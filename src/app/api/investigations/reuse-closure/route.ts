@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
-import { closeAmeEventsLocally, findMatchingOpenAmeEvents } from "@/lib/ame-event-cache";
+import { closeAmeEventsLocally, getCachedAmeEvent } from "@/lib/ame-event-cache";
+import { eventContextFromAmeEvent, reviewOpenCachedEvents, reviewPriorClosedAlerts } from "@/lib/event-similarity";
 import {
   createInvestigation,
-  findMatchingClosedInvestigations,
   findMatchingOpenInvestigations,
 } from "@/lib/investigations";
 import type { ChatMessage } from "@/lib/types";
@@ -24,18 +24,25 @@ export async function POST(request:NextRequest){
   try{
     const body=await request.json() as Body;
     const previousInvestigationId=String(body.previousInvestigationId??"").trim();
-    const title=String(body.title??"").trim();
+    const sourceEventId=String(body.sourceEventId??"").trim();
     const connectionId=String(body.connectionId??"").trim();
-    if(!previousInvestigationId||!title||!connectionId||!body.eventContext||typeof body.eventContext!=="object"||Array.isArray(body.eventContext)){
-      return NextResponse.json({error:"A previous investigation, connection, title, and event context are required."},{status:400});
+    if(!previousInvestigationId||!sourceEventId||!connectionId){
+      return NextResponse.json({error:"A previous investigation, connection, and source event are required."},{status:400});
     }
-    const matches=await findMatchingClosedInvestigations({
-      kind:"alert",
+    const cached=await getCachedAmeEvent(connectionId,sourceEventId);
+    const event=cached.event;
+    if(!event||event.localClosureClassification||!["new","open","assigned","in_progress"].includes(String(event.status??"").toLowerCase())){
+      return NextResponse.json({error:"This event is no longer open in the local cache. Refresh the event and review it again."},{status:409});
+    }
+    const title=event.title;
+    const context=eventContextFromAmeEvent(event);
+    const priorReview=await reviewPriorClosedAlerts({
       title,
       connectionId,
-      eventContext:body.eventContext,
+      eventContext:context,
+      onlyId:previousInvestigationId,
     });
-    const previous=matches.find((match)=>match.id===previousInvestigationId&&match.matchKind==="exact");
+    const previous=priorReview.matches.find((match)=>match.id===previousInvestigationId&&match.canReuse);
     if(!previous){
       return NextResponse.json({error:"That previous decision no longer matches this alert. Start a new investigation instead."},{status:409});
     }
@@ -49,9 +56,9 @@ export async function POST(request:NextRequest){
       title,
       description:String(body.description??"").trim(),
       status:"closed",
-      sourceEventId:body.sourceEventId?String(body.sourceEventId):undefined,
+      sourceEventId,
       connectionId,
-      eventContext:body.eventContext,
+      eventContext:context,
       messages:[welcome],
       closureClassification:previous.closureClassification,
       closureReason:previous.closureReason,
@@ -65,8 +72,8 @@ export async function POST(request:NextRequest){
       });
     }
     const matchingInvestigations=await findMatchingOpenInvestigations(investigation);
-    const matchingEvents=await findMatchingOpenAmeEvents(investigation);
-    return NextResponse.json({investigation,previous,matchingInvestigations,matchingEvents});
+    const review=await reviewOpenCachedEvents(investigation);
+    return NextResponse.json({investigation,previous,matchingInvestigations,matchingEvents:review.matches,reviewWarning:review.warning});
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to reuse the previous alert decision."},

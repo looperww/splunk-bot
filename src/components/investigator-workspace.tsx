@@ -131,6 +131,7 @@ function createClosureNotification(input:{
   reason:string;
   investigations:InvestigationMatch[];
   events:AmeEventClosureMatch[];
+  reviewWarning?:string;
 }):InvestigationClosureNotification|null{
   const representedEventIds=new Set(
     input.investigations.map((match)=>match.sourceEventId).filter((id):id is string=>Boolean(id)),
@@ -146,6 +147,7 @@ function createClosureNotification(input:{
     reason:input.reason,
     matches:input.investigations,
     eventMatches,
+    reviewWarning:input.reviewWarning,
   };
 }
 
@@ -238,10 +240,14 @@ export default function InvestigatorWorkspace(){
   const [bulkCloseOpen,setBulkCloseOpen]=useState(false);
   const [bulkClosing,setBulkClosing]=useState(false);
   const [bulkCloseNotification,setBulkCloseNotification]=useState<InvestigationClosureNotification|null>(null);
+  const [bulkSelectedInvestigationIds,setBulkSelectedInvestigationIds]=useState<string[]>([]);
+  const [bulkSelectedEventIds,setBulkSelectedEventIds]=useState<string[]>([]);
+  const [similarityReviewLoading,setSimilarityReviewLoading]=useState(false);
   const [priorCloseOpen,setPriorCloseOpen]=useState(false);
   const [priorCloseLoading,setPriorCloseLoading]=useState(false);
   const [priorCloseMatches,setPriorCloseMatches]=useState<ClosedInvestigationMatch[]>([]);
   const [priorCloseSelectedId,setPriorCloseSelectedId]=useState("");
+  const [priorReviewWarning,setPriorReviewWarning]=useState("");
   const [pendingAlert,setPendingAlert]=useState<AmeEvent|null>(null);
   const [reusingPriorClose,setReusingPriorClose]=useState(false);
 
@@ -249,6 +255,15 @@ export default function InvestigatorWorkspace(){
   const bulkCloseMatchCount=bulkCloseNotification
     ?bulkCloseNotification.matches.length+(bulkCloseNotification.eventMatches?.length??0)
     :0;
+  const bulkSelectedCount=bulkSelectedInvestigationIds.length+bulkSelectedEventIds.length;
+  const selectedPriorClose=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
+
+  function showBulkCloseNotification(notification:InvestigationClosureNotification){
+    setBulkCloseNotification(notification);
+    setBulkSelectedInvestigationIds(notification.matches.map((match)=>match.id));
+    setBulkSelectedEventIds((notification.eventMatches??[]).filter((event)=>event.canClose!==false).map((event)=>event.eventId));
+    setBulkCloseOpen(true);
+  }
   const activeChatAgent=agents.find((agent)=>agent.id===(activeInvestigation?.agentId??agentId))??selectedAgent;
   const ongoing=useMemo(
     ()=>investigations.filter((item)=>item.status==="ongoing"),
@@ -335,8 +350,7 @@ export default function InvestigatorWorkspace(){
     const openNotification=(id:string)=>{
       const notification=notifications.find((item)=>item.id===id);
       if(!notification) return;
-      setBulkCloseNotification(notification);
-      setBulkCloseOpen(true);
+      showBulkCloseNotification(notification);
     };
     if(notificationId) openNotification(notificationId);
     function onNotification(event:Event){
@@ -493,12 +507,14 @@ export default function InvestigatorWorkspace(){
         body:JSON.stringify({
           kind:"alert",
           title:selectedEvent.title||"Alert Manager event "+selectedEvent.id,
+          eventId:selectedEvent.id,
           connectionId:selectedConnection?.id,
           eventContext:eventContext(selectedEvent),
         }),
       });
-      const data=await response.json() as {matches?:ClosedInvestigationMatch[];error?:string};
+      const data=await response.json() as {matches?:ClosedInvestigationMatch[];warning?:string;error?:string};
       if(!response.ok) throw new Error(data.error??"Failed to check previous investigations.");
+      setPriorReviewWarning(data.warning??"");
       if(data.matches?.length){
         setPendingAlert(selectedEvent);
         setPriorCloseMatches(data.matches);
@@ -506,6 +522,7 @@ export default function InvestigatorWorkspace(){
         setPriorCloseOpen(true);
         return;
       }
+      if(data.warning) setNotice(data.warning);
       await startAlertInvestigation(selectedEvent);
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to check previous investigations.");
@@ -526,7 +543,7 @@ export default function InvestigatorWorkspace(){
   async function closeAlertWithPreviousDecision(){
     if(!pendingAlert||!selectedConnection||reusingPriorClose) return;
     const previous=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
-    if(!previous||previous.matchKind!=="exact") return;
+    if(!previous||!(previous.canReuse??previous.matchKind==="exact")) return;
     setReusingPriorClose(true);
     setError("");
     setNotice("");
@@ -544,13 +561,13 @@ export default function InvestigatorWorkspace(){
           eventContext:eventContext(pendingAlert),
         }),
       });
-      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];reviewWarning?:string;error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to reuse the previous decision.");
       setInvestigations((current)=>[data.investigation!,...current.filter((item)=>item.id!==data.investigation!.id)]);
       setPriorCloseOpen(false);
       setPendingAlert(null);
       setPriorCloseMatches([]);
-      setNotice(`Closed this alert as ${decisionLabel(previous.closureClassification)} using the previous analyst decision.`);
+      setNotice(`Closed this alert as ${decisionLabel(previous.closureClassification)} using the previous analyst decision.${data.reviewWarning?" "+data.reviewWarning:""}`);
       window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
       const notification=createClosureNotification({
         source:data.investigation,
@@ -558,11 +575,11 @@ export default function InvestigatorWorkspace(){
         reason:previous.closureReason,
         investigations:data.matchingInvestigations??[],
         events:data.matchingEvents??[],
+        reviewWarning:data.reviewWarning,
       });
       if(notification){
         addNotification(notification);
-        setBulkCloseNotification(notification);
-        setBulkCloseOpen(true);
+        showBulkCloseNotification(notification);
       }
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to reuse the previous decision.");
@@ -959,7 +976,7 @@ export default function InvestigatorWorkspace(){
           }),
         },
       );
-      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];reviewWarning?:string;error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to save the learning pattern.");
       setActiveInvestigation(data.investigation);
       setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
@@ -967,6 +984,7 @@ export default function InvestigatorWorkspace(){
       setClosureReviewOpen(false);
       setLearningReviewOpen(false);
       setLearningDraft(null);
+      if(data.reviewWarning) setNotice(data.reviewWarning);
       window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
       const notification=createClosureNotification({
         source:data.investigation,
@@ -974,11 +992,11 @@ export default function InvestigatorWorkspace(){
         reason:closureReason.trim(),
         investigations:data.matchingInvestigations??[],
         events:data.matchingEvents??[],
+        reviewWarning:data.reviewWarning,
       });
       if(notification){
         addNotification(notification);
-        setBulkCloseNotification(notification);
-        setBulkCloseOpen(true);
+        showBulkCloseNotification(notification);
       }
     }catch(reasonValue){
       setError(reasonValue instanceof Error?reasonValue.message:"Failed to save the learning pattern.");
@@ -1035,7 +1053,7 @@ export default function InvestigatorWorkspace(){
   }
 
   async function closeMatchingAlerts(){
-    if(!bulkCloseNotification||bulkClosing) return;
+    if(!bulkCloseNotification||bulkClosing||bulkSelectedCount===0) return;
     setBulkClosing(true);
     setError("");
     try{
@@ -1044,8 +1062,8 @@ export default function InvestigatorWorkspace(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           sourceInvestigationId:bulkCloseNotification.sourceInvestigationId,
-          investigationIds:bulkCloseNotification.matches.map((match)=>match.id),
-          eventIds:(bulkCloseNotification.eventMatches??[]).map((match)=>match.eventId),
+          investigationIds:bulkSelectedInvestigationIds,
+          eventIds:bulkSelectedEventIds,
           classification:bulkCloseNotification.classification,
           reason:bulkCloseNotification.reason,
         }),
@@ -1057,13 +1075,52 @@ export default function InvestigatorWorkspace(){
         ?{...item,status:"closed",closureClassification:bulkCloseNotification.classification,closureReason:bulkCloseNotification.reason,updatedAt:new Date().toISOString()}
         :item));
       window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
-      dismissNotification(bulkCloseNotification.id);
+      const closedEventIds=new Set(data.closedEventIds??[]);
+      const remainingInvestigations=bulkCloseNotification.matches.filter((match)=>!closedIds.has(match.id));
+      const remainingEvents=(bulkCloseNotification.eventMatches??[]).filter((event)=>!closedEventIds.has(event.eventId));
+      if(remainingInvestigations.length||remainingEvents.length){
+        addNotification({...bulkCloseNotification,matches:remainingInvestigations,eventMatches:remainingEvents});
+      }else{
+        dismissNotification(bulkCloseNotification.id);
+      }
       setBulkCloseOpen(false);
       setBulkCloseNotification(null);
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to close matching alerts.");
     }finally{
       setBulkClosing(false);
+    }
+  }
+
+  async function reviewSimilarEvents(record:InvestigationRecord){
+    if(similarityReviewLoading||!record.closureClassification) return;
+    setSimilarityReviewLoading(true);
+    setError("");
+    try{
+      const response=await fetch(
+        "/api/investigations/"+encodeURIComponent(record.id)+"/similar-events",
+        {method:"POST"},
+      );
+      const data=await response.json() as {matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];reviewWarning?:string;error?:string};
+      if(!response.ok) throw new Error(data.error??"Failed to review similar events.");
+      const notification=createClosureNotification({
+        source:record,
+        classification:record.closureClassification,
+        reason:record.closureReason,
+        investigations:data.matchingInvestigations??[],
+        events:data.matchingEvents??[],
+        reviewWarning:data.reviewWarning,
+      });
+      if(notification){
+        addNotification(notification);
+        showBulkCloseNotification(notification);
+      }else{
+        setNotice(data.reviewWarning??"No other open events were recommended for this decision.");
+      }
+    }catch(reason){
+      setError(reason instanceof Error?reason.message:"Failed to review similar events.");
+    }finally{
+      setSimilarityReviewLoading(false);
     }
   }
 
@@ -1243,8 +1300,8 @@ export default function InvestigatorWorkspace(){
         <div className="prior-close-header">
           <div>
             <div className="eyebrow">PREVIOUS ALERT DECISION</div>
-            <h2 id="prior-close-title">A previous investigation may be relevant</h2>
-            <p>Found <strong>{priorCloseMatches.length}</strong> previously closed investigation{priorCloseMatches.length===1?"":"s"} for this alert or its destination IOC. Review the details before deciding whether to investigate.</p>
+            <h2 id="prior-close-title">Review a previous alert decision</h2>
+            <p>Found <strong>{priorCloseMatches.length}</strong> previously closed investigation{priorCloseMatches.length===1?"":"s"} related to this alert. AI may recommend reusing a decision, but you make the final choice.</p>
           </div>
           <button className="icon-button" type="button" onClick={()=>setPriorCloseOpen(false)} disabled={reusingPriorClose} aria-label="Close">×</button>
         </div>
@@ -1252,7 +1309,7 @@ export default function InvestigatorWorkspace(){
         {priorCloseMatches.length>1&&<label className="prior-close-select">
           <span className="label">Previous investigation</span>
           <select value={priorCloseSelectedId} onChange={(event)=>setPriorCloseSelectedId(event.target.value)} disabled={reusingPriorClose}>
-            {priorCloseMatches.map((match)=><option value={match.id} key={match.id}>{match.matchKind==="exact"?"Exact alert":"Same destination IOC"} · {decisionLabel(match.closureClassification)} · closed {formatDate(match.updatedAt)}</option>)}
+            {priorCloseMatches.map((match)=><option value={match.id} key={match.id}>{match.canReuse?"Recommended":"Review"} · {match.matchKind==="exact"?"Exact alert":match.matchKind==="related_ioc"?"Same destination IOC":"Similar alert"} · {decisionLabel(match.closureClassification)} · closed {formatDate(match.updatedAt)}</option>)}
           </select>
         </label>}
 
@@ -1260,7 +1317,8 @@ export default function InvestigatorWorkspace(){
           const previous=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
           return <div className="prior-close-decision">
             <div className="prior-close-decision-heading"><span className="label">Decision from the selected investigation</span><span className={"prior-close-classification "+previous.closureClassification}>{decisionLabel(previous.closureClassification)}</span></div>
-            <p><strong>{previous.matchKind==="exact"?"Exact match":"Related IOC only"}</strong>{previous.sourceIp?` · Previous source: ${previous.sourceIp}`:""}{eventSourceIp(eventContext(pendingAlert))?` · Current source: ${eventSourceIp(eventContext(pendingAlert))}`:""}</p>
+            <p><strong>{previous.canReuse?(previous.similarityReason?"AI recommends the same decision":"Exact event details match"):previous.matchKind==="exact"?"Exact event details":"Related, but the same decision is not confirmed"}</strong>{previous.sourceIp?` · Previous source: ${previous.sourceIp}`:""}{eventSourceIp(eventContext(pendingAlert))?` · Current source: ${eventSourceIp(eventContext(pendingAlert))}`:""}</p>
+            {previous.similarityReason&&<p><strong>AI assessment:</strong> {previous.similarityReason}{previous.similarityConfidence!==undefined?` · ${Math.round(previous.similarityConfidence*100)}% confidence`:""}</p>}
             <p>{previous.closureReason}</p>
             <small>Closed {formatDate(previous.updatedAt)} · {previous.sourceEventId?`Source event ${previous.sourceEventId}`:"No source event ID"}</small>
           </div>;
@@ -1268,14 +1326,15 @@ export default function InvestigatorWorkspace(){
 
         <div className="prior-close-note">
           <ShieldCheckIcon size={19} weight="duotone"/>
-          <span>{(priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0]).matchKind==="exact"
-            ?"This alert matches apart from time and identifiers. Reusing the decision closes it in Splunk Bot without an AI search; Splunk AME is unchanged."
-            :"This alert shares the destination IOC but differs in other evidence, such as the source device. The earlier decision is context only; investigate this alert separately before closing it."}</span>
+          <span>{selectedPriorClose?.canReuse
+            ?"Review the comparison and prior analyst reason before accepting. Reusing closes this alert in Splunk Bot without an AI investigation; Splunk AME is unchanged."
+            :"The earlier alert may provide useful context, but there is not enough support to reuse its closure. Investigate this alert separately."}</span>
         </div>
+        {priorReviewWarning&&<p className="modal-intro" role="status">{priorReviewWarning}</p>}
 
         <div className="closure-review-footer">
           <button className="secondary-button" type="button" onClick={()=>void investigateAlertDespiteHistory()} disabled={reusingPriorClose}>Investigate anyway</button>
-          {(priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0]).matchKind==="exact"&&<button className="primary-button" type="button" onClick={()=>void closeAlertWithPreviousDecision()} disabled={reusingPriorClose}>{reusingPriorClose?"Closing alert…":"Close with this decision"}</button>}
+          {selectedPriorClose?.canReuse&&<button className="primary-button" type="button" onClick={()=>void closeAlertWithPreviousDecision()} disabled={reusingPriorClose}>{reusingPriorClose?"Closing alert…":"Close with this decision"}</button>}
         </div>
       </section>
     </div>}
@@ -1399,6 +1458,12 @@ export default function InvestigatorWorkspace(){
                 onClick={()=>setReportConfirmOpen(true)}
                 disabled={sending||generatingReport}
               >{activeInvestigation.report?"Regenerate report":"Generate report"}</button>}
+              {activeInvestigation.kind==="alert"&&activeInvestigation.status==="closed"&&<button
+                className="secondary-button"
+                type="button"
+                onClick={()=>void reviewSimilarEvents(activeInvestigation)}
+                disabled={similarityReviewLoading}
+              >{similarityReviewLoading?"Reviewing events…":"Find similar events"}</button>}
               <button className="secondary-button" type="button" onClick={()=>activeInvestigation.status==="ongoing"?void openClosureReview():void setInvestigationStatus("ongoing")} disabled={closureSuggestionLoading}>{activeInvestigation.status==="ongoing"?(closureSuggestionLoading?"Preparing review…":"Close investigation"):"Reopen investigation"}</button>
               <button className="secondary-button" type="button" onClick={()=>void deleteActiveInvestigation()} disabled={deleting}>{deleting?"Deleting…":"Delete investigation"}</button>
               <button className="icon-button" type="button" onClick={closeDialogs} aria-label="Close">×</button>
@@ -1672,9 +1737,9 @@ export default function InvestigatorWorkspace(){
       <section className="panel modal-dialog bulk-close-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-close-title" onMouseDown={(event)=>event.stopPropagation()}>
         <div className="bulk-close-header">
           <div>
-            <div className="eyebrow">DUPLICATE EVENTS FOUND</div>
-            <h2 id="bulk-close-title">Close the matching alerts too?</h2>
-            <p>After closing <strong>{bulkCloseNotification.sourceTitle}</strong>, the app found <strong>{bulkCloseMatchCount}</strong> other open alerts with the same event details apart from their timestamps.</p>
+            <div className="eyebrow">SIMILAR EVENT REVIEW</div>
+            <h2 id="bulk-close-title">Review events for the same decision</h2>
+            <p>After closing <strong>{bulkCloseNotification.sourceTitle}</strong>, the app found <strong>{bulkCloseMatchCount}</strong> open alert{bulkCloseMatchCount===1?"":"s"} that may support the same decision. Select only those you have reviewed.</p>
           </div>
           <button className="icon-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing} aria-label="Close">×</button>
         </div>
@@ -1685,24 +1750,28 @@ export default function InvestigatorWorkspace(){
         </div>
 
         <div className="bulk-close-match-list" aria-label="Matching open events and investigations">
-          {bulkCloseNotification.matches.map((match)=><div className="bulk-close-match" key={match.id}>
-            <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)}</small></div>
+          {bulkCloseNotification.matches.map((match)=><label className="bulk-close-match" key={match.id}>
+            <input type="checkbox" checked={bulkSelectedInvestigationIds.includes(match.id)} onChange={(event)=>setBulkSelectedInvestigationIds((current)=>event.target.checked?[...current,match.id]:current.filter((id)=>id!==match.id))}/>
+            <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)} · Exact investigation match</small></div>
             <span className="investigation-status ongoing">ongoing</span>
-          </div>)}
-          {(bulkCloseNotification.eventMatches??[]).map((event)=><div className="bulk-close-match" key={event.eventId}>
-            <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}</small></div>
-            <span className="investigation-status ongoing">open event</span>
-          </div>)}
+          </label>)}
+          {(bulkCloseNotification.eventMatches??[]).map((event)=><label className="bulk-close-match" key={event.eventId}>
+            <input type="checkbox" checked={bulkSelectedEventIds.includes(event.eventId)} disabled={event.canClose===false} onChange={(change)=>setBulkSelectedEventIds((current)=>change.target.checked?[...current,event.eventId]:current.filter((id)=>id!==event.eventId))}/>
+            <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}{event.sourceIp?` · Source ${event.sourceIp}`:""}{event.destinationIp?` → ${event.destinationIp}`:""}</small>{event.similarityReason&&<small>AI: {event.similarityReason}{event.similarityConfidence!==undefined?` · ${Math.round(event.similarityConfidence*100)}% confidence`:""}</small>}</div>
+            <span className="investigation-status ongoing">{event.canClose===false?"review only":"recommended"}</span>
+          </label>)}
         </div>
+
+        {bulkCloseNotification.reviewWarning&&<p className="modal-intro" role="status">{bulkCloseNotification.reviewWarning}</p>}
 
         <div className="bulk-close-note">
           <ShieldCheckIcon size={19} weight="duotone"/>
-          <span>This bulk action applies the same analyst-confirmed decision to matching events in Splunk Bot only. Splunk AME status is not changed.</span>
+          <span>AI recommendations are advisory. Only checked events can receive the same decision; “review only” events need a separate investigation. This action changes Splunk Bot only; Splunk AME status is not changed.</span>
         </div>
 
         <div className="closure-review-footer">
           <button className="secondary-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing}>Not now</button>
-          <button className="primary-button" type="button" onClick={()=>void closeMatchingAlerts()} disabled={bulkClosing}>{bulkClosing?"Closing matches…":`Close all ${bulkCloseMatchCount} matches`}</button>
+          <button className="primary-button" type="button" onClick={()=>void closeMatchingAlerts()} disabled={bulkClosing||bulkSelectedCount===0}>{bulkClosing?"Closing selected…":`Close selected ${bulkSelectedCount}`}</button>
         </div>
       </section>
     </div>}

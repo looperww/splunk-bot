@@ -207,7 +207,7 @@ export default function AppShell({
 
   function addNotification(notification:InvestigationClosureNotification){
     setNotifications((current)=>{
-      const next=[notification,...current.filter((item)=>item.id!==notification.id)];
+      const next=[notification,...current.filter((item)=>item.id!==notification.id&&item.sourceInvestigationId!==notification.sourceInvestigationId)];
       localStorage.setItem(NOTIFICATION_STORAGE_KEY,JSON.stringify(next));
       return next;
     });

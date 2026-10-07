@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareAlertEvents, eventMatchFingerprint, relatedIocFingerprint } from "../src/lib/event-matching.ts";
+import { compareAlertEvents, eventDestinationIp, eventMatchFingerprint, relatedIocFingerprint } from "../src/lib/event-matching.ts";
 
 function alertInput({id,created,firstSeen,mostRecent,eventTime,srcip="10.63.133.46",dstip="188.114.96.4"}){
   return {
@@ -48,6 +48,7 @@ test("flags a shared destination IOC for review without treating different sourc
   assert.notEqual(eventMatchFingerprint(closed),eventMatchFingerprint(newAlert));
   assert.equal(relatedIocFingerprint(closed),relatedIocFingerprint(newAlert));
   assert.equal(compareAlertEvents(newAlert,closed),"related_ioc");
+  assert.equal(eventDestinationIp(newAlert.eventContext),"188.114.96.4");
 });
 
 test("does not suggest an unrelated destination IOC",()=>{

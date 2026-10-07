@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
-import { closeAmeEventsLocally, findMatchingOpenAmeEvents } from "@/lib/ame-event-cache";
+import { closeAmeEventsLocally } from "@/lib/ame-event-cache";
+import { reviewOpenCachedEvents } from "@/lib/event-similarity";
 import {
   closeInvestigationMatches,
   findMatchingOpenInvestigations,
@@ -42,14 +43,20 @@ export async function POST(request:NextRequest){
     }
     const source=await getInvestigation(sourceInvestigationId);
     if(!source) return NextResponse.json({error:"Source investigation not found."},{status:404});
-    const [matches,eventMatches]=await Promise.all([
+    if(source.kind!=="alert"||source.status!=="closed"||source.closureClassification!==body.classification||source.closureReason!==reason){
+      return NextResponse.json({error:"The reviewed decision no longer matches the closed source investigation."},{status:409});
+    }
+    const [matches,eventReview]=await Promise.all([
       findMatchingOpenInvestigations(source),
-      findMatchingOpenAmeEvents(source),
+      reviewOpenCachedEvents(source,requestedEventIds),
     ]);
     const allowedInvestigationIds=new Set(matches.map((match)=>match.id));
-    const allowedEventIds=new Set(eventMatches.map((match)=>match.eventId));
+    const allowedEventIds=new Set(eventReview.matches.filter((match)=>match.canClose!==false).map((match)=>match.eventId));
     const investigationIds=requestedInvestigationIds.filter((id)=>allowedInvestigationIds.has(id));
     const eventIds=requestedEventIds.filter((id)=>allowedEventIds.has(id));
+    if(investigationIds.length!==requestedInvestigationIds.length||eventIds.length!==requestedEventIds.length){
+      return NextResponse.json({error:"Some suggestions are no longer valid. Review the open alerts again."},{status:409});
+    }
     if(!investigationIds.length&&!eventIds.length){
       return NextResponse.json({error:"Those matching events are no longer open."},{status:409});
     }

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
-import { findMatchingClosedInvestigations } from "@/lib/investigations";
+import { getCachedAmeEvent } from "@/lib/ame-event-cache";
+import { eventContextFromAmeEvent, reviewPriorClosedAlerts } from "@/lib/event-similarity";
 
 type Body={
   kind?:string;
   title?:string;
   connectionId?:string;
+  eventId?:string;
   eventContext?:Record<string,unknown>;
 };
 
@@ -20,13 +22,14 @@ export async function POST(request:NextRequest){
     if(!title||!connectionId||!body.eventContext||typeof body.eventContext!=="object"||Array.isArray(body.eventContext)){
       return NextResponse.json({error:"Alert matching requires a title, connection, and event context."},{status:400});
     }
-    const matches=await findMatchingClosedInvestigations({
-      kind:"alert",
-      title,
+    const eventId=String(body.eventId??"").trim();
+    const cached=eventId?await getCachedAmeEvent(connectionId,eventId):null;
+    const result=await reviewPriorClosedAlerts({
+      title:cached?.event?.title??title,
       connectionId,
-      eventContext:body.eventContext,
+      eventContext:cached?.event?eventContextFromAmeEvent(cached.event):body.eventContext,
     });
-    return NextResponse.json({matches});
+    return NextResponse.json(result);
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to find previous matching investigations."},
