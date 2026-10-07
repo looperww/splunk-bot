@@ -12,6 +12,9 @@ export type AmeEvent = {
   created?:string;
   owner?:string;
   raw:Record<string,unknown>;
+  localClosureClassification?:DecisionClassification;
+  localClosureReason?:string;
+  localClosedAt?:string;
 };
 
 export type SplunkAlert = {
@@ -183,6 +186,13 @@ export type InvestigationMatch={
   updatedAt:string;
 };
 
+export type AmeEventClosureMatch={
+  eventId:string;
+  title:string;
+  urgency:string|null;
+  createdAt:string|null;
+};
+
 export type ClosedInvestigationMatch=InvestigationMatch & {
   closureClassification:DecisionClassification;
   closureReason:string;
@@ -196,4 +206,5 @@ export type InvestigationClosureNotification={
   classification:DecisionClassification;
   reason:string;
   matches:InvestigationMatch[];
+  eventMatches?:AmeEventClosureMatch[];
 };
