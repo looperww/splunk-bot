@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppState } from "@/components/app-shell";
 import DetailFields from "@/components/detail-fields";
@@ -8,6 +8,10 @@ import type { AmeEvent } from "@/lib/types";
 import { formatTimestamp, timestampMillis } from "@/lib/time";
 
 type EventSort="created-desc"|"created-asc"|"urgency-desc"|"urgency-asc";
+type EventFetchInterval="manual"|"5"|"10"|"15"|"30"|"60";
+
+const EVENT_FETCH_INTERVAL_KEY="splunk-bot-event-fetch-interval";
+const EVENT_FETCH_INTERVALS:EventFetchInterval[]=["manual","5","10","15","30","60"];
 
 function urgencyRank(value:string|undefined):number|null{
   if(!value) return null;
@@ -58,13 +62,27 @@ export default function EventsPage(){
   const [cachedAt,setCachedAt]=useState<string|null>(null);
   const [sort,setSort]=useState<EventSort>("created-desc");
   const [showClosedEvents,setShowClosedEvents]=useState(false);
+  const [fetchInterval,setFetchInterval]=useState<EventFetchInterval>("manual");
+  const [refreshing,setRefreshing]=useState(false);
+  const requestSequence=useRef(0);
 
-  async function loadEvents(refresh=false){
-    if(!selectedConnection){setEvents([]);return;}
-    setLoading(true);
+  const loadEvents=useCallback(async(refresh=false,background=false)=>{
+    const requestId=++requestSequence.current;
+    if(!selectedConnection){
+      setEvents([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+    const connectionId=selectedConnection.id;
+    if(background) setRefreshing(true);
+    else{
+      setLoading(true);
+      setRefreshing(false);
+    }
     setError("");
     try{
-      const url="/api/ame/events?connectionId="+encodeURIComponent(selectedConnection.id)+(refresh?"&refresh=true":"");
+      const url="/api/ame/events?connectionId="+encodeURIComponent(connectionId)+(refresh?"&refresh=true":"");
       const response=await fetch(url,{cache:"no-store"});
       const data=await response.json() as {
         events?:AmeEvent[];
@@ -73,13 +91,26 @@ export default function EventsPage(){
         cachedAt?:string|null;
       };
       if(!response.ok) throw new Error(data.error??"Failed to load AME events.");
+      if(requestId!==requestSequence.current) return;
       setEvents(data.events??[]);
       setCached(Boolean(data.cached));
       setCachedAt(data.cachedAt??null);
-      setExpandedId(null);
+      if(!background) setExpandedId(null);
     }catch(reason){
-      setError(reason instanceof Error?reason.message:"Failed to load AME events.");
-    }finally{setLoading(false);}
+      if(requestId===requestSequence.current){
+        setError(reason instanceof Error?reason.message:"Failed to load AME events.");
+      }
+    }finally{
+      if(requestId===requestSequence.current){
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  },[selectedConnection]);
+
+  function changeFetchInterval(value:EventFetchInterval){
+    setFetchInterval(value);
+    localStorage.setItem(EVENT_FETCH_INTERVAL_KEY,value);
   }
 
   useEffect(()=>{
@@ -88,18 +119,30 @@ export default function EventsPage(){
   },[]);
 
   useEffect(()=>{
-    void loadEvents(false);
-    // The selected connection is the cache boundary.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[selectedConnection]);
+    const saved=localStorage.getItem(EVENT_FETCH_INTERVAL_KEY);
+    if(saved&&EVENT_FETCH_INTERVALS.includes(saved as EventFetchInterval)){
+      setFetchInterval(saved as EventFetchInterval);
+    }
+  },[]);
 
   useEffect(()=>{
-    const refreshClosedEvents=()=>void loadEvents(false);
+    void loadEvents(false);
+  },[loadEvents]);
+
+  useEffect(()=>{
+    const refreshClosedEvents=()=>void loadEvents(false,true);
     window.addEventListener("splunk-bot-ame-events-updated",refreshClosedEvents);
     return ()=>window.removeEventListener("splunk-bot-ame-events-updated",refreshClosedEvents);
-    // This listener follows the currently selected connection.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[selectedConnection]);
+  },[loadEvents]);
+
+  useEffect(()=>{
+    const minutes=Number(fetchInterval);
+    if(!selectedConnection||!Number.isFinite(minutes)||minutes<=0) return;
+    const intervalId=window.setInterval(()=>{
+      if(document.visibilityState==="visible") void loadEvents(true,true);
+    },minutes*60_000);
+    return ()=>window.clearInterval(intervalId);
+  },[fetchInterval,loadEvents,selectedConnection]);
 
   const filtered=useMemo(()=>{
     const term=search.trim().toLowerCase();
@@ -157,9 +200,24 @@ export default function EventsPage(){
         <span className="cache-status">
           {cached&&cachedAt?"Cached "+new Date(cachedAt).toLocaleString():cachedAt?"Updated "+new Date(cachedAt).toLocaleString():"Not cached"}
         </span>
-        <button className="secondary-button" disabled={loading||!selectedConnection} onClick={()=>void loadEvents(true)}>
-          {loading?"Loading…":"Refresh events"}
+        <button className="secondary-button" disabled={loading||refreshing||!selectedConnection} onClick={()=>void loadEvents(true)}>
+          {loading||refreshing?"Refreshing…":"Refresh events"}
         </button>
+        <label className="event-auto-fetch">
+          <span>Auto fetch</span>
+          <select
+            value={fetchInterval}
+            onChange={(event)=>changeFetchInterval(event.target.value as EventFetchInterval)}
+            aria-label="Event auto-fetch interval"
+          >
+            <option value="manual">Manual refresh</option>
+            <option value="5">5 mins</option>
+            <option value="10">10 mins</option>
+            <option value="15">15 mins</option>
+            <option value="30">30 mins</option>
+            <option value="60">1 hour</option>
+          </select>
+        </label>
         <span className="count">{filtered.length} shown{!showClosedEvents&&events.some(isClosedEvent)?` · ${events.filter(isClosedEvent).length} closed hidden`:""}</span>
       </div>
     </header>
