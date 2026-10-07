@@ -33,6 +33,11 @@ function eventStatusLabel(event:AmeEvent):string{
   return event.localClosedAt?"Closed locally":event.status??"Unknown";
 }
 
+function isClosedEvent(event:AmeEvent):boolean{
+  return Boolean(event.localClosedAt||event.localClosureClassification)
+    ||["closed","resolved","suppressed"].includes(String(event.status??"").trim().toLowerCase());
+}
+
 function eventUrgencyLabel(event:AmeEvent):string|undefined{
   if(!event.localClosureClassification) return event.urgency;
   return event.localClosureClassification==="false_positive"
@@ -52,6 +57,7 @@ export default function EventsPage(){
   const [cached,setCached]=useState(false);
   const [cachedAt,setCachedAt]=useState<string|null>(null);
   const [sort,setSort]=useState<EventSort>("created-desc");
+  const [showClosedEvents,setShowClosedEvents]=useState(false);
 
   async function loadEvents(refresh=false){
     if(!selectedConnection){setEvents([]);return;}
@@ -97,15 +103,18 @@ export default function EventsPage(){
 
   const filtered=useMemo(()=>{
     const term=search.trim().toLowerCase();
-    if(!term) return events;
-    return events.filter((event)=>[
-      event.title,
-      event.id,
-      eventStatusLabel(event),
-      eventUrgencyLabel(event),
-      event.owner,
-    ].some((value)=>value?.toLowerCase().includes(term)));
-  },[events,search]);
+    return events.filter((event)=>{
+      if(!showClosedEvents&&isClosedEvent(event)) return false;
+      if(!term) return true;
+      return [
+        event.title,
+        event.id,
+        eventStatusLabel(event),
+        eventUrgencyLabel(event),
+        event.owner,
+      ].some((value)=>value?.toLowerCase().includes(term));
+    });
+  },[events,search,showClosedEvents]);
   const sorted=useMemo(()=>{
     return filtered.map((event,index)=>({event,index})).sort((left,right)=>{
       let leftValue:number|null;
@@ -130,7 +139,7 @@ export default function EventsPage(){
   const pageCount=Math.max(1,Math.ceil(sorted.length/pageSize));
   const visible=sorted.slice(page*pageSize,(page+1)*pageSize);
 
-  useEffect(()=>{setPage(0);},[search,sort,selectedConnection]);
+  useEffect(()=>{setPage(0);},[search,sort,selectedConnection,showClosedEvents]);
 
   function investigate(event:AmeEvent){
     setSelectedEvent(event);
@@ -151,7 +160,7 @@ export default function EventsPage(){
         <button className="secondary-button" disabled={loading||!selectedConnection} onClick={()=>void loadEvents(true)}>
           {loading?"Loading…":"Refresh events"}
         </button>
-        <span className="count">{filtered.length} / {events.length}</span>
+        <span className="count">{filtered.length} shown{!showClosedEvents&&events.some(isClosedEvent)?` · ${events.filter(isClosedEvent).length} closed hidden`:""}</span>
       </div>
     </header>
     {!selectedConnection&&<div className="empty-state panel">Configure or select a Splunk connection in Settings.</div>}
@@ -165,6 +174,10 @@ export default function EventsPage(){
         <option value="urgency-desc">Urgency: highest first</option>
         <option value="urgency-asc">Urgency: lowest first</option>
       </select>
+      <label className="event-closed-toggle">
+        <input type="checkbox" checked={showClosedEvents} onChange={(event)=>setShowClosedEvents(event.target.checked)}/>
+        <span>Show closed events</span>
+      </label>
       <span>Page {page+1} of {pageCount}</span>
       <button className="secondary-button" disabled={page===0} onClick={()=>setPage((value)=>Math.max(0,value-1))}>Previous</button>
       <button className="secondary-button" disabled={page+1>=pageCount} onClick={()=>setPage((value)=>Math.min(pageCount-1,value+1))}>Next</button>
