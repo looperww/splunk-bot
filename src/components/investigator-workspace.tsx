@@ -1020,6 +1020,15 @@ export default function InvestigatorWorkspace(){
 
   function investigationCard(item:InvestigationRecord){
     const lastMessage=item.messages[item.messages.length-1];
+    const closedDecision=item.kind==="alert"&&item.status==="closed"
+      ?item.closureClassification
+      :null;
+    const label=closedDecision
+      ?decisionLabel(closedDecision)
+      :item.kind==="alert"?"Alert":"Incident";
+    const badgeClass=closedDecision
+      ?"investigation-kind decision-badge "+closedDecision
+      :"investigation-kind "+item.kind;
     return <button
       type="button"
       className="investigation-list-item"
@@ -1028,7 +1037,7 @@ export default function InvestigatorWorkspace(){
     >
       <span className="investigation-list-main">
         <span className="investigation-list-title">
-          <span className={"investigation-kind "+item.kind}>{item.kind==="alert"?"alerts":"incident"}</span>
+          <span className={badgeClass}>{label}</span>
           <strong>{item.title}</strong>
         </span>
         <p>{item.description||lastMessage?.content||"No description yet."}</p>
