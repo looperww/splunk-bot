@@ -36,3 +36,42 @@ export function eventMatchFingerprint(input:EventMatchInput):string|null{
     context:input.eventContext,
   }));
 }
+
+function notableFields(context:Record<string,unknown>):Record<string,unknown>|null{
+  const raw=context.raw;
+  if(!raw||typeof raw!=="object"||Array.isArray(raw)) return null;
+  const fields=(raw as Record<string,unknown>).most_recent_notable_fields;
+  if(fields&&typeof fields==="object"&&!Array.isArray(fields)) return fields as Record<string,unknown>;
+  if(typeof fields!=="string") return null;
+  try{
+    const parsed:unknown=JSON.parse(fields);
+    return parsed&&typeof parsed==="object"&&!Array.isArray(parsed)
+      ?parsed as Record<string,unknown>
+      :null;
+  }catch{
+    return null;
+  }
+}
+
+export function relatedIocFingerprint(input:EventMatchInput):string|null{
+  if(input.kind!=="alert"||!input.eventContext) return null;
+  const fields=notableFields(input.eventContext);
+  const destination=String(fields?.dstip??"").trim().toLowerCase();
+  const indicator=String(fields?.IOC_DESC??"").trim().toLowerCase();
+  if(!input.title.trim()||!destination||!indicator) return null;
+  return JSON.stringify({title:input.title.trim().toLowerCase(),destination,indicator});
+}
+
+export function eventSourceIp(context:Record<string,unknown>|null):string|null{
+  if(!context) return null;
+  const source=String(notableFields(context)?.srcip??"").trim();
+  return source||null;
+}
+
+export function compareAlertEvents(current:EventMatchInput,previous:EventMatchInput):"exact"|"related_ioc"|null{
+  const currentExact=eventMatchFingerprint(current);
+  if(!currentExact) return null;
+  if(currentExact===eventMatchFingerprint(previous)) return "exact";
+  const currentIoc=relatedIocFingerprint(current);
+  return currentIoc&&currentIoc===relatedIocFingerprint(previous)?"related_ioc":null;
+}

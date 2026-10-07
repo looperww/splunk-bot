@@ -196,6 +196,8 @@ export type AmeEventClosureMatch={
 export type ClosedInvestigationMatch=InvestigationMatch & {
   closureClassification:DecisionClassification;
   closureReason:string;
+  matchKind:"exact"|"related_ioc";
+  sourceIp:string|null;
 };
 
 export type InvestigationClosureNotification={
