@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
-import { createInvestigation, findMatchingClosedInvestigations } from "@/lib/investigations";
+import {
+  createInvestigation,
+  findMatchingClosedInvestigations,
+  findMatchingOpenInvestigations,
+} from "@/lib/investigations";
 import type { ChatMessage } from "@/lib/types";
 
 type Body={
@@ -51,7 +55,8 @@ export async function POST(request:NextRequest){
       closureClassification:previous.closureClassification,
       closureReason:previous.closureReason,
     });
-    return NextResponse.json({investigation,previous});
+    const matchingInvestigations=await findMatchingOpenInvestigations(investigation);
+    return NextResponse.json({investigation,previous,matchingInvestigations});
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to reuse the previous alert decision."},

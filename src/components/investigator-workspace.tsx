@@ -515,13 +515,27 @@ export default function InvestigatorWorkspace(){
           eventContext:eventContext(pendingAlert),
         }),
       });
-      const data=await response.json() as {investigation?:InvestigationRecord;error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to reuse the previous decision.");
       setInvestigations((current)=>[data.investigation!,...current.filter((item)=>item.id!==data.investigation!.id)]);
       setPriorCloseOpen(false);
       setPendingAlert(null);
       setPriorCloseMatches([]);
       setNotice(`Closed this alert as ${decisionLabel(previous.closureClassification)} using the previous analyst decision.`);
+      if(data.matchingInvestigations?.length){
+        const notification:InvestigationClosureNotification={
+          id:crypto.randomUUID(),
+          createdAt:new Date().toISOString(),
+          sourceInvestigationId:data.investigation.id,
+          sourceTitle:data.investigation.title,
+          classification:previous.closureClassification,
+          reason:previous.closureReason,
+          matches:data.matchingInvestigations,
+        };
+        addNotification(notification);
+        setBulkCloseNotification(notification);
+        setBulkCloseOpen(true);
+      }
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to reuse the previous decision.");
     }finally{
