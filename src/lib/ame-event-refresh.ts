@@ -18,7 +18,7 @@ async function refreshConnection(connectionId:string):Promise<"refreshed"|"alrea
       "SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS locked",
       [lockName],
     );
-    if(!lock[0]?.locked) return "already-running";
+    if(!lock.rows[0]?.locked) return "already-running";
 
     try{
       const result=await getAmeEvents(connectionId);
