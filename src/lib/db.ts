@@ -183,6 +183,16 @@ async function createSchema():Promise<void>{
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
 
+      CREATE TABLE IF NOT EXISTS abuse_ipdb_settings (
+        id TEXT PRIMARY KEY,
+        api_key_ciphertext TEXT,
+        api_key_iv TEXT,
+        api_key_tag TEXT,
+        api_key_last4 TEXT NOT NULL DEFAULT '',
+        encryption_key_version INTEGER,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS app_users (
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
@@ -223,6 +233,7 @@ async function createSchema():Promise<void>{
         think_enabled BOOLEAN NOT NULL DEFAULT FALSE,
         event_context JSONB,
         incident_context JSONB,
+        abuse_ipdb JSONB,
         messages JSONB NOT NULL DEFAULT '[]'::jsonb,
         report TEXT NOT NULL DEFAULT '',
         scope JSONB,
@@ -246,7 +257,8 @@ async function createSchema():Promise<void>{
         ADD COLUMN IF NOT EXISTS closure_classification TEXT,
         ADD COLUMN IF NOT EXISTS closure_reason TEXT NOT NULL DEFAULT '',
         ADD COLUMN IF NOT EXISTS ai_model TEXT,
-        ADD COLUMN IF NOT EXISTS think_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+        ADD COLUMN IF NOT EXISTS think_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS abuse_ipdb JSONB;
 
       CREATE TABLE IF NOT EXISTS investigation_learnings (
         id TEXT PRIMARY KEY,

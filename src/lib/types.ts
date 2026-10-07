@@ -80,6 +80,28 @@ export type InvestigationStatus="ongoing"|"closed";
 export type DecisionClassification="false_positive"|"critical"|"high"|"medium"|"low";
 export type LearningStatus="active"|"review"|"disabled";
 
+export type AbuseIpdbResult={
+  ipAddress:string;
+  abuseConfidenceScore:number;
+  countryCode:string|null;
+  countryName:string|null;
+  usageType:string|null;
+  isp:string|null;
+  domain:string|null;
+  isTor:boolean|null;
+  isWhitelisted:boolean|null;
+  totalReports:number;
+  numDistinctUsers:number;
+  lastReportedAt:string|null;
+};
+
+export type AbuseIpdbEnrichment={
+  checkedIps:string[];
+  checkedAt:string;
+  results:AbuseIpdbResult[];
+  errors?:string[];
+};
+
 export type ClosureSuggestion={
   classification:DecisionClassification;
   reason:string;
@@ -139,6 +161,7 @@ export type InvestigationRecord={
   thinkEnabled:boolean;
   eventContext:Record<string,unknown>|null;
   incidentContext:IncidentContext|null;
+  abuseIpdb:AbuseIpdbEnrichment|null;
   messages:ChatMessage[];
   report:string;
   scope:InvestigationScope|null;

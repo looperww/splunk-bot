@@ -9,6 +9,7 @@ import MarkdownMessage from "@/components/markdown-message";
 import type { InvestigationAgent } from "@/lib/agents";
 import type {
   AgentBudget,
+  AbuseIpdbEnrichment,
   AmeEvent,
   ChatMessage,
   ClosedInvestigationMatch,
@@ -170,6 +171,10 @@ export default function InvestigatorWorkspace(){
   const [chatModels,setChatModels]=useState<ChatModel[]>([]);
   const [chatModelsLoading,setChatModelsLoading]=useState(false);
   const [investigations,setInvestigations]=useState<InvestigationRecord[]>([]);
+  const [abuseIpdbByInvestigation,setAbuseIpdbByInvestigation]=useState<Record<string,AbuseIpdbEnrichment>>({});
+  const [abuseIpdbConfiguredByInvestigation,setAbuseIpdbConfiguredByInvestigation]=useState<Record<string,boolean>>({});
+  const [abuseIpdbErrorByInvestigation,setAbuseIpdbErrorByInvestigation]=useState<Record<string,string>>({});
+  const [abuseIpdbLoadingId,setAbuseIpdbLoadingId]=useState("");
   const [eventId,setEventId]=useState("");
   const [fetchingEvent,setFetchingEvent]=useState(false);
   const [eventDetailsOpen,setEventDetailsOpen]=useState(false);
@@ -228,6 +233,15 @@ export default function InvestigatorWorkspace(){
     const searches=activeInvestigation?.searches??[];
     return [...searches].reverse().find((search)=>search.phase==="confirmation")??searches[searches.length-1]??null;
   },[activeInvestigation?.searches]);
+  const activeAbuseIpdb=activeInvestigation
+    ?abuseIpdbByInvestigation[activeInvestigation.id]??activeInvestigation.abuseIpdb
+    :null;
+  const activeAbuseIpdbConfigured=activeInvestigation
+    ?abuseIpdbConfiguredByInvestigation[activeInvestigation.id]
+    :undefined;
+  const activeAbuseIpdbError=activeInvestigation
+    ?abuseIpdbErrorByInvestigation[activeInvestigation.id]??""
+    :"";
 
   useEffect(()=>{
     void fetch("/api/agents",{cache:"no-store"})
@@ -665,6 +679,37 @@ export default function InvestigatorWorkspace(){
     void updateChatSettings({aiModel:model,thinkEnabled:keepThinking});
   }
 
+  async function checkAbuseIpdb(record:InvestigationRecord){
+    if(abuseIpdbLoadingId===record.id) return;
+    setAbuseIpdbLoadingId(record.id);
+    setAbuseIpdbErrorByInvestigation((current)=>({...current,[record.id]:""}));
+    try{
+      const response=await fetch(
+        "/api/investigations/"+encodeURIComponent(record.id)+"/abuseipdb",
+        {method:"POST"},
+      );
+      const data=await response.json() as {
+        configured?:boolean;
+        enrichment?:AbuseIpdbEnrichment|null;
+        error?:string;
+      };
+      if(!response.ok) throw new Error(data.error??"AbuseIPDB lookup failed.");
+      setAbuseIpdbConfiguredByInvestigation((current)=>({...current,[record.id]:Boolean(data.configured)}));
+      const enrichment=data.enrichment??null;
+      if(enrichment){
+        setAbuseIpdbByInvestigation((current)=>({...current,[record.id]:enrichment}));
+        setActiveInvestigation((current)=>current?.id===record.id?{...current,abuseIpdb:enrichment}:current);
+        setInvestigations((current)=>current.map((item)=>item.id===record.id?{...item,abuseIpdb:enrichment}:item));
+        setAbuseIpdbErrorByInvestigation((current)=>({...current,[record.id]:enrichment.errors?.join(" ")??""}));
+      }
+    }catch(reason){
+      setAbuseIpdbErrorByInvestigation((current)=>({
+        ...current,
+        [record.id]:reason instanceof Error?reason.message:"AbuseIPDB lookup failed.",
+      }));
+    }finally{setAbuseIpdbLoadingId("");}
+  }
+
   async function runAgent(
     record:InvestigationRecord,
     nextMessages:ChatMessage[],
@@ -722,6 +767,7 @@ export default function InvestigatorWorkspace(){
     setInvestigations((current)=>current.map((item)=>item.id===optimistic.id?optimistic:item));
     setQuestions([]);
     setSending(true);
+    void checkAbuseIpdb(optimistic);
     try{
       await runAgent(optimistic,optimistic.messages);
     }catch(reason){
@@ -1343,6 +1389,55 @@ export default function InvestigatorWorkspace(){
             </section>
             <aside className="investigation-report-column">
               <div className="panel-heading"><div><div className="eyebrow">REPORT & EVIDENCE</div><h3>Incident report</h3></div><span className="count">{activeInvestigation.searches.length}</span></div>
+              <section className="abuseipdb-card" aria-labelledby="abuseipdb-card-title">
+                <div className="abuseipdb-card-heading">
+                  <div><div className="eyebrow">THREAT INTELLIGENCE</div><h4 id="abuseipdb-card-title">IP reputation</h4></div>
+                  <span>AbuseIPDB</span>
+                </div>
+                <p className="abuseipdb-intro">Abuse Confidence for up to five public IPs found in this investigation.</p>
+                {abuseIpdbLoadingId===activeInvestigation.id
+                  ?<div className="abuseipdb-empty">Checking public IP addresses…</div>
+                  :activeAbuseIpdbConfigured===false&&!activeAbuseIpdb?.results.length
+                    ?<div className="abuseipdb-empty">Add an API key in Settings to check IP reputation. <Link href="/settings">Open Settings</Link></div>
+                    :activeAbuseIpdb
+                      ?<>
+                        {activeAbuseIpdb.results.length>0
+                          ?<div className="abuseipdb-result-list">{activeAbuseIpdb.results.map((result)=>{
+                            const tone=result.abuseConfidenceScore>=70?"high":result.abuseConfidenceScore>=30?"moderate":"low";
+                            return <article className="abuseipdb-result" key={result.ipAddress}>
+                              <div className="abuseipdb-result-top"><code>{result.ipAddress}</code><strong className={"abuseipdb-score "+tone}>{result.abuseConfidenceScore}<span>/100</span></strong></div>
+                              <div className="abuseipdb-score-track" role="progressbar" aria-label={`Abuse confidence for ${result.ipAddress}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={result.abuseConfidenceScore}>
+                                <span className={tone} style={{width:`${result.abuseConfidenceScore}%`}}/>
+                              </div>
+                              <div className="abuseipdb-result-meta">
+                                <span>{result.totalReports} reports</span>
+                                {result.countryCode&&<span>{result.countryName||result.countryCode}</span>}
+                                {result.usageType&&<span>{result.usageType}</span>}
+                              </div>
+                              {(result.isTor||result.isp||result.lastReportedAt)&&<div className="abuseipdb-result-note">
+                                {result.isTor&&<span>Tor exit node</span>}
+                                {result.isp&&<span>{result.isp}</span>}
+                                {result.lastReportedAt&&<span>Last reported {formatDate(result.lastReportedAt)}</span>}
+                              </div>}
+                            </article>;
+                          })}</div>
+                          :activeAbuseIpdb.errors?.length
+                            ?<div className="abuseipdb-empty">The IP reputation lookup did not complete.</div>
+                            :<div className="abuseipdb-empty">No public IP addresses were found in the investigation details.</div>}
+                        {activeAbuseIpdb.errors?.length
+                          ?<div className="abuseipdb-error">{activeAbuseIpdb.errors.join(" ")}</div>
+                          :null}
+                        <div className="abuseipdb-card-footer">
+                          <small>Checked {formatDate(activeAbuseIpdb.checkedAt)}</small>
+                          {Boolean(activeAbuseIpdb.errors?.length)&&<button className="secondary-button" type="button" disabled={abuseIpdbLoadingId===activeInvestigation.id} onClick={()=>void checkAbuseIpdb(activeInvestigation)}>Retry</button>}
+                        </div>
+                      </>
+                      :<div className="abuseipdb-empty">
+                        {activeAbuseIpdbError&&<span>{activeAbuseIpdbError}</span>}
+                        <button className="secondary-button" type="button" disabled={abuseIpdbLoadingId===activeInvestigation.id} onClick={()=>void checkAbuseIpdb(activeInvestigation)}>{activeAbuseIpdbError?"Retry lookup":"Check IP reputation"}</button>
+                      </div>}
+                <div className="abuseipdb-disclaimer">Reference only; this score is based on community reports and does not determine severity or disposition.</div>
+              </section>
               {activeInvestigation.scope&&<div className="investigation-scope-summary">
                 <div><span className="label">Objective</span><strong>{activeInvestigation.scope.objective||"—"}</strong></div>
                 <div><span className="label">Target</span><strong>{activeInvestigation.scope.target||"—"}</strong></div>

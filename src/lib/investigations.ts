@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { ensureSchema, query } from "@/lib/db";
 import type {
   AgentBudget,
+  AbuseIpdbEnrichment,
   ChatMessage,
   ClosedInvestigationMatch,
   DecisionClassification,
@@ -80,6 +81,7 @@ function mapInvestigation(row:Row):InvestigationRecord{
     thinkEnabled:Boolean(row.think_enabled),
     eventContext,
     incidentContext,
+    abuseIpdb:recordValue(row.abuse_ipdb) as AbuseIpdbEnrichment|null,
     messages:mapMessages(row.messages),
     report:String(row.report??""),
     scope,
@@ -318,6 +320,22 @@ export async function updateInvestigation(id:string,input:{
       input.closureClassification??null,
       input.closureReason===undefined?null:input.closureReason,
     ],
+  );
+  if(!rows[0]) throw new Error("Investigation not found.");
+  return mapInvestigation(rows[0]);
+}
+
+export async function saveInvestigationAbuseIpdb(
+  id:string,
+  enrichment:AbuseIpdbEnrichment,
+):Promise<InvestigationRecord>{
+  await ensureSchema();
+  const rows=await query<Row>(
+    `UPDATE investigations
+        SET abuse_ipdb=$2::jsonb
+      WHERE id=$1
+      RETURNING *`,
+    [id,JSON.stringify(enrichment)],
   );
   if(!rows[0]) throw new Error("Investigation not found.");
   return mapInvestigation(rows[0]);
