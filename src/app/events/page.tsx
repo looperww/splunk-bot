@@ -29,6 +29,17 @@ function urgencyTone(value:string|undefined):string{
   return "severity-low";
 }
 
+function eventStatusLabel(event:AmeEvent):string{
+  return event.localClosedAt?"Closed locally":event.status??"Unknown";
+}
+
+function eventUrgencyLabel(event:AmeEvent):string|undefined{
+  if(!event.localClosureClassification) return event.urgency;
+  return event.localClosureClassification==="false_positive"
+    ?"False positive"
+    :event.localClosureClassification.charAt(0).toUpperCase()+event.localClosureClassification.slice(1);
+}
+
 export default function EventsPage(){
   const router=useRouter();
   const {selectedConnection,selectedEvent,setSelectedEvent}=useAppState();
@@ -76,14 +87,22 @@ export default function EventsPage(){
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[selectedConnection]);
 
+  useEffect(()=>{
+    const refreshClosedEvents=()=>void loadEvents(false);
+    window.addEventListener("splunk-bot-ame-events-updated",refreshClosedEvents);
+    return ()=>window.removeEventListener("splunk-bot-ame-events-updated",refreshClosedEvents);
+    // This listener follows the currently selected connection.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[selectedConnection]);
+
   const filtered=useMemo(()=>{
     const term=search.trim().toLowerCase();
     if(!term) return events;
     return events.filter((event)=>[
       event.title,
       event.id,
-      event.status,
-      event.urgency,
+      eventStatusLabel(event),
+      eventUrgencyLabel(event),
       event.owner,
     ].some((value)=>value?.toLowerCase().includes(term)));
   },[events,search]);
@@ -95,8 +114,8 @@ export default function EventsPage(){
         leftValue=timestampMillis(left.event.created);
         rightValue=timestampMillis(right.event.created);
       }else{
-        leftValue=urgencyRank(left.event.urgency);
-        rightValue=urgencyRank(right.event.urgency);
+        leftValue=urgencyRank(eventUrgencyLabel(left.event));
+        rightValue=urgencyRank(eventUrgencyLabel(right.event));
       }
       if(leftValue===null&&rightValue===null) return left.index-right.index;
       if(leftValue===null) return 1;
@@ -162,8 +181,8 @@ export default function EventsPage(){
             onClick={()=>toggleEvent(event.id)}
           >
             <div className="table-main"><strong>{event.title}</strong><small>{event.id}</small></div>
-            <span>{event.status??"Unknown"}</span>
-            <span className={"severity-badge "+urgencyTone(event.urgency)}>{event.urgency??"Unknown"}</span>
+            <span>{eventStatusLabel(event)}</span>
+            <span className={"severity-badge "+urgencyTone(eventUrgencyLabel(event))}>{eventUrgencyLabel(event)??"Unknown"}</span>
             <time dateTime={event.created} title={event.created}>{formatTimestamp(event.created)}</time>
             <div className="event-row-actions">
               <button className="secondary-button" aria-expanded={expanded} onClick={(clickEvent)=>{clickEvent.stopPropagation();toggleEvent(event.id);}}>{expanded?"Hide details":"Details"}</button>
@@ -173,11 +192,12 @@ export default function EventsPage(){
           {expanded&&<div className="event-expanded-details">
             <div className="event-summary-grid">
               <div><span className="label">Event ID</span><code>{event.id}</code></div>
-              <div><span className="label">Status</span><span>{event.status??"—"}</span></div>
-              <div><span className="label">Urgency</span><span>{event.urgency??"—"}</span></div>
+              <div><span className="label">Status</span><span>{eventStatusLabel(event)}</span></div>
+              <div><span className="label">Final severity</span><span>{eventUrgencyLabel(event)??"—"}</span></div>
               <div><span className="label">Created</span><time dateTime={event.created} title={event.created}>{formatTimestamp(event.created)}</time></div>
               <div><span className="label">Owner</span><span>{event.owner??"—"}</span></div>
             </div>
+            {event.localClosedAt&&<div className="event-raw-heading"><span className="label">Closed locally</span><span>{event.localClosureReason??"No reason recorded."}</span></div>}
             <div className="event-raw-heading"><span className="label">All event details</span><span>Color-coded by field type</span></div>
             <DetailFields data={event.raw}/>
           </div>}

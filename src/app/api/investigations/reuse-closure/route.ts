@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
+import { closeAmeEventsLocally, findMatchingOpenAmeEvents } from "@/lib/ame-event-cache";
 import {
   createInvestigation,
   findMatchingClosedInvestigations,
@@ -55,8 +56,17 @@ export async function POST(request:NextRequest){
       closureClassification:previous.closureClassification,
       closureReason:previous.closureReason,
     });
+    if(investigation.sourceEventId){
+      await closeAmeEventsLocally({
+        connectionId:investigation.connectionId,
+        eventIds:[investigation.sourceEventId],
+        classification:previous.closureClassification,
+        reason:previous.closureReason,
+      });
+    }
     const matchingInvestigations=await findMatchingOpenInvestigations(investigation);
-    return NextResponse.json({investigation,previous,matchingInvestigations});
+    const matchingEvents=await findMatchingOpenAmeEvents(investigation);
+    return NextResponse.json({investigation,previous,matchingInvestigations,matchingEvents});
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to reuse the previous alert decision."},

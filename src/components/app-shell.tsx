@@ -319,7 +319,7 @@ export default function AppShell({
                   :<div className="notifications-list">
                     {notifications.map((notification)=><article className="notification-item" key={notification.id}>
                       <div className="notification-item-copy">
-                        <strong>{notification.matches.length} matching investigation{notification.matches.length===1?"":"s"} still open</strong>
+                        <strong>{notification.matches.length+(notification.eventMatches?.length??0)} matching alert{notification.matches.length+(notification.eventMatches?.length??0)===1?"":"s"} still open</strong>
                         <span>{notification.sourceTitle}</span>
                         <small>{new Date(notification.createdAt).toLocaleString()}</small>
                       </div>

@@ -342,6 +342,33 @@ async function createSchema():Promise<void>{
       CREATE INDEX IF NOT EXISTS ame_event_cache_connection_idx
         ON ame_event_cache(connection_id, source_order);
 
+      CREATE TABLE IF NOT EXISTS ame_event_local_closures (
+        connection_id TEXT NOT NULL REFERENCES splunk_connections(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL,
+        classification TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        closed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY(connection_id, event_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS ame_event_local_closures_closed_at_idx
+        ON ame_event_local_closures(connection_id, closed_at DESC);
+
+      INSERT INTO ame_event_local_closures(connection_id,event_id,classification,reason,closed_at)
+      SELECT connection_id,source_event_id,closure_classification,COALESCE(closure_reason,''),updated_at
+        FROM (
+          SELECT DISTINCT ON (connection_id,source_event_id)
+                 connection_id,source_event_id,closure_classification,closure_reason,updated_at
+            FROM investigations
+           WHERE kind='alert'
+             AND status='closed'
+             AND connection_id IS NOT NULL
+             AND source_event_id IS NOT NULL
+             AND closure_classification IS NOT NULL
+           ORDER BY connection_id,source_event_id,updated_at DESC
+        ) AS closed_alerts
+      ON CONFLICT(connection_id,event_id) DO NOTHING;
+
       CREATE TABLE IF NOT EXISTS splunk_alert_cache (
         connection_id TEXT NOT NULL REFERENCES splunk_connections(id) ON DELETE CASCADE,
         alert_id TEXT NOT NULL,

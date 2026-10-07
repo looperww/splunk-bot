@@ -11,6 +11,7 @@ import type {
   AgentBudget,
   AbuseIpdbEnrichment,
   AmeEvent,
+  AmeEventClosureMatch,
   ChatMessage,
   ClosedInvestigationMatch,
   ClosureSuggestion,
@@ -123,6 +124,30 @@ function eventContext(event:AmeEvent):Record<string,unknown>{
   };
 }
 
+function createClosureNotification(input:{
+  source:InvestigationRecord;
+  classification:DecisionClassification;
+  reason:string;
+  investigations:InvestigationMatch[];
+  events:AmeEventClosureMatch[];
+}):InvestigationClosureNotification|null{
+  const representedEventIds=new Set(
+    input.investigations.map((match)=>match.sourceEventId).filter((id):id is string=>Boolean(id)),
+  );
+  const eventMatches=input.events.filter((match)=>!representedEventIds.has(match.eventId));
+  if(!input.investigations.length&&!eventMatches.length) return null;
+  return {
+    id:crypto.randomUUID(),
+    createdAt:new Date().toISOString(),
+    sourceInvestigationId:input.source.id,
+    sourceTitle:input.source.title,
+    classification:input.classification,
+    reason:input.reason,
+    matches:input.investigations,
+    eventMatches,
+  };
+}
+
 function JsonValue({value,depth=0}:{value:unknown;depth?:number}):React.JSX.Element{
   if(value===null) return <span className="json-null">null</span>;
   if(value===undefined) return <span className="json-null">undefined</span>;
@@ -220,6 +245,9 @@ export default function InvestigatorWorkspace(){
   const [reusingPriorClose,setReusingPriorClose]=useState(false);
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
+  const bulkCloseMatchCount=bulkCloseNotification
+    ?bulkCloseNotification.matches.length+(bulkCloseNotification.eventMatches?.length??0)
+    :0;
   const activeChatAgent=agents.find((agent)=>agent.id===(activeInvestigation?.agentId??agentId))??selectedAgent;
   const ongoing=useMemo(
     ()=>investigations.filter((item)=>item.status==="ongoing"),
@@ -515,23 +543,22 @@ export default function InvestigatorWorkspace(){
           eventContext:eventContext(pendingAlert),
         }),
       });
-      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to reuse the previous decision.");
       setInvestigations((current)=>[data.investigation!,...current.filter((item)=>item.id!==data.investigation!.id)]);
       setPriorCloseOpen(false);
       setPendingAlert(null);
       setPriorCloseMatches([]);
       setNotice(`Closed this alert as ${decisionLabel(previous.closureClassification)} using the previous analyst decision.`);
-      if(data.matchingInvestigations?.length){
-        const notification:InvestigationClosureNotification={
-          id:crypto.randomUUID(),
-          createdAt:new Date().toISOString(),
-          sourceInvestigationId:data.investigation.id,
-          sourceTitle:data.investigation.title,
-          classification:previous.closureClassification,
-          reason:previous.closureReason,
-          matches:data.matchingInvestigations,
-        };
+      window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
+      const notification=createClosureNotification({
+        source:data.investigation,
+        classification:previous.closureClassification,
+        reason:previous.closureReason,
+        investigations:data.matchingInvestigations??[],
+        events:data.matchingEvents??[],
+      });
+      if(notification){
         addNotification(notification);
         setBulkCloseNotification(notification);
         setBulkCloseOpen(true);
@@ -931,7 +958,7 @@ export default function InvestigatorWorkspace(){
           }),
         },
       );
-      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to save the learning pattern.");
       setActiveInvestigation(data.investigation);
       setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
@@ -939,16 +966,15 @@ export default function InvestigatorWorkspace(){
       setClosureReviewOpen(false);
       setLearningReviewOpen(false);
       setLearningDraft(null);
-      if(data.matchingInvestigations?.length){
-        const notification:InvestigationClosureNotification={
-          id:crypto.randomUUID(),
-          createdAt:new Date().toISOString(),
-          sourceInvestigationId:data.investigation.id,
-          sourceTitle:data.investigation.title,
-          classification:learningDraft.classification,
-          reason:closureReason.trim(),
-          matches:data.matchingInvestigations,
-        };
+      window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
+      const notification=createClosureNotification({
+        source:data.investigation,
+        classification:learningDraft.classification,
+        reason:closureReason.trim(),
+        investigations:data.matchingInvestigations??[],
+        events:data.matchingEvents??[],
+      });
+      if(notification){
         addNotification(notification);
         setBulkCloseNotification(notification);
         setBulkCloseOpen(true);
@@ -1007,7 +1033,7 @@ export default function InvestigatorWorkspace(){
     }
   }
 
-  async function closeMatchingInvestigations(){
+  async function closeMatchingAlerts(){
     if(!bulkCloseNotification||bulkClosing) return;
     setBulkClosing(true);
     setError("");
@@ -1018,21 +1044,23 @@ export default function InvestigatorWorkspace(){
         body:JSON.stringify({
           sourceInvestigationId:bulkCloseNotification.sourceInvestigationId,
           investigationIds:bulkCloseNotification.matches.map((match)=>match.id),
+          eventIds:(bulkCloseNotification.eventMatches??[]).map((match)=>match.eventId),
           classification:bulkCloseNotification.classification,
           reason:bulkCloseNotification.reason,
         }),
       });
-      const data=await response.json() as {closedIds?:string[];error?:string};
-      if(!response.ok) throw new Error(data.error??"Failed to close matching investigations.");
+      const data=await response.json() as {closedIds?:string[];closedEventIds?:string[];error?:string};
+      if(!response.ok) throw new Error(data.error??"Failed to close matching alerts.");
       const closedIds=new Set(data.closedIds??[]);
       setInvestigations((current)=>current.map((item)=>closedIds.has(item.id)
         ?{...item,status:"closed",closureClassification:bulkCloseNotification.classification,closureReason:bulkCloseNotification.reason,updatedAt:new Date().toISOString()}
         :item));
+      window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
       dismissNotification(bulkCloseNotification.id);
       setBulkCloseOpen(false);
       setBulkCloseNotification(null);
     }catch(reason){
-      setError(reason instanceof Error?reason.message:"Failed to close matching investigations.");
+      setError(reason instanceof Error?reason.message:"Failed to close matching alerts.");
     }finally{
       setBulkClosing(false);
     }
@@ -1640,9 +1668,9 @@ export default function InvestigatorWorkspace(){
       <section className="panel modal-dialog bulk-close-dialog" role="dialog" aria-modal="true" aria-labelledby="bulk-close-title" onMouseDown={(event)=>event.stopPropagation()}>
         <div className="bulk-close-header">
           <div>
-            <div className="eyebrow">DUPLICATE INVESTIGATIONS FOUND</div>
-            <h2 id="bulk-close-title">Close the matching investigations too?</h2>
-            <p>After closing <strong>{bulkCloseNotification.sourceTitle}</strong>, the app found <strong>{bulkCloseNotification.matches.length}</strong> other ongoing investigations with the same event details apart from their timestamps.</p>
+            <div className="eyebrow">DUPLICATE EVENTS FOUND</div>
+            <h2 id="bulk-close-title">Close the matching alerts too?</h2>
+            <p>After closing <strong>{bulkCloseNotification.sourceTitle}</strong>, the app found <strong>{bulkCloseMatchCount}</strong> other open alerts with the same event details apart from their timestamps.</p>
           </div>
           <button className="icon-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing} aria-label="Close">×</button>
         </div>
@@ -1652,21 +1680,25 @@ export default function InvestigatorWorkspace(){
           <div><span className="label">Reason</span><span>{bulkCloseNotification.reason}</span></div>
         </div>
 
-        <div className="bulk-close-match-list" aria-label="Matching ongoing investigations">
+        <div className="bulk-close-match-list" aria-label="Matching open events and investigations">
           {bulkCloseNotification.matches.map((match)=><div className="bulk-close-match" key={match.id}>
             <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)}</small></div>
             <span className="investigation-status ongoing">ongoing</span>
+          </div>)}
+          {(bulkCloseNotification.eventMatches??[]).map((event)=><div className="bulk-close-match" key={event.eventId}>
+            <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}</small></div>
+            <span className="investigation-status ongoing">open event</span>
           </div>)}
         </div>
 
         <div className="bulk-close-note">
           <ShieldCheckIcon size={19} weight="duotone"/>
-          <span>This bulk action closes the matching Splunk Bot investigations with the same analyst-confirmed settings. You can review them individually instead. Splunk AME status is not changed by this local action.</span>
+          <span>This bulk action applies the same analyst-confirmed decision to matching events in Splunk Bot only. Splunk AME status is not changed.</span>
         </div>
 
         <div className="closure-review-footer">
           <button className="secondary-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing}>Not now</button>
-          <button className="primary-button" type="button" onClick={()=>void closeMatchingInvestigations()} disabled={bulkClosing}>{bulkClosing?"Closing matches…":`Close all ${bulkCloseNotification.matches.length} matches`}</button>
+          <button className="primary-button" type="button" onClick={()=>void closeMatchingAlerts()} disabled={bulkClosing}>{bulkClosing?"Closing matches…":`Close all ${bulkCloseMatchCount} matches`}</button>
         </div>
       </section>
     </div>}
