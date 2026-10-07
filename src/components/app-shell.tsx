@@ -23,6 +23,19 @@ import type { StoredSplunkConnection } from "@/lib/connections";
 import type { AmeEvent, IncidentContext, InvestigationClosureNotification } from "@/lib/types";
 
 const NOTIFICATION_STORAGE_KEY="splunk-bot-closure-notifications";
+const SELECTED_CONNECTION_COOKIE="splunk-bot-connection-id";
+
+function persistConnectionPreference(connection:StoredSplunkConnection|null){
+  if(typeof document==="undefined") return;
+  const secure=window.location.protocol==="https:"?"; Secure":"";
+  if(connection){
+    localStorage.setItem("splunk-bot-connection-id",connection.id);
+    document.cookie=SELECTED_CONNECTION_COOKIE+"="+encodeURIComponent(connection.id)+"; Path=/; Max-Age=31536000; SameSite=Lax"+secure;
+  }else{
+    localStorage.removeItem("splunk-bot-connection-id");
+    document.cookie=SELECTED_CONNECTION_COOKIE+"=; Path=/; Max-Age=0; SameSite=Lax"+secure;
+  }
+}
 
 type AppState={
   selectedConnection:StoredSplunkConnection|null;
@@ -64,11 +77,17 @@ export function useAppState():AppState{
   return value;
 }
 
-export default function AppShell({children}:{children:React.ReactNode}){
+export default function AppShell({
+  children,
+  initialUser,
+}:{
+  children:React.ReactNode;
+  initialUser:{id:string;username:string}|null;
+}){
   const pathname=usePathname();
   const router=useRouter();
-  const [authStatus,setAuthStatus]=useState<"loading"|"authenticated"|"unauthenticated"|"public">("loading");
-  const [authUser,setAuthUser]=useState<{id:string;username:string}|null>(null);
+  const [authStatus,setAuthStatus]=useState<"loading"|"authenticated"|"unauthenticated"|"public">(initialUser?"authenticated":"loading");
+  const [authUser,setAuthUser]=useState<{id:string;username:string}|null>(initialUser);
   const [selectedConnection,setConnection]=useState<StoredSplunkConnection|null>(null);
   const [selectedEvent,setEvent]=useState<AmeEvent|null>(null);
   const [selectedIncident,setIncident]=useState<IncidentContext|null>(null);
@@ -81,6 +100,29 @@ export default function AppShell({children}:{children:React.ReactNode}){
       setAuthStatus("public");
       setAuthUser(null);
       return;
+    }
+
+    if(initialUser){
+      setAuthUser(initialUser);
+      setAuthStatus("authenticated");
+      let cancelled=false;
+      void fetch("/api/auth/session",{cache:"no-store"})
+        .then(async(response)=>{
+          const data=await response.json() as {authenticated?:boolean;user?:{id:string;username:string}};
+          if(!response.ok||!data.authenticated||!data.user) throw new Error("Authentication required.");
+          return data;
+        })
+        .then((data)=>{
+          if(!cancelled) setAuthUser(data.user??initialUser);
+        })
+        .catch(()=>{
+          if(cancelled) return;
+          setAuthUser(null);
+          setAuthStatus("unauthenticated");
+          const next=pathname+(window.location.search||"");
+          router.replace(`/login?next=${encodeURIComponent(next)}`);
+        });
+      return ()=>{cancelled=true;};
     }
 
     let cancelled=false;
@@ -104,7 +146,7 @@ export default function AppShell({children}:{children:React.ReactNode}){
         router.replace(`/login?next=${encodeURIComponent(next)}`);
       });
     return ()=>{cancelled=true;};
-  },[pathname,router]);
+  },[pathname,router,initialUser]);
 
   useEffect(()=>{
     if(authStatus!=="authenticated") return;
@@ -120,9 +162,9 @@ export default function AppShell({children}:{children:React.ReactNode}){
       .then((data:{connections?:StoredSplunkConnection[]})=>{
         const connections=data.connections??[];
         const preferred=localStorage.getItem("splunk-bot-connection-id");
-        setConnection(
-          connections.find((item)=>item.id===preferred)??connections[0]??null,
-        );
+        const connection=connections.find((item)=>item.id===preferred)??connections[0]??null;
+        setConnection(connection);
+        persistConnectionPreference(connection);
       })
       .catch(()=>{});
   },[authStatus]);
@@ -148,8 +190,7 @@ export default function AppShell({children}:{children:React.ReactNode}){
 
   function setSelectedConnection(connection:StoredSplunkConnection|null){
     setConnection(connection);
-    if(connection) localStorage.setItem("splunk-bot-connection-id",connection.id);
-    else localStorage.removeItem("splunk-bot-connection-id");
+    persistConnectionPreference(connection);
   }
 
   function setSelectedEvent(event:AmeEvent|null){
