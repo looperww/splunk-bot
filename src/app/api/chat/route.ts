@@ -141,7 +141,7 @@ export async function POST(request: NextRequest){
     );
 
     if(plan.status==="clarification_needed"){
-      const questionsText=plan.questions
+      const questionsText=plan.questions.slice(0,1)
         .map((question,index)=>{
           const options=question.options.length
             ?"\n"+question.options
@@ -158,10 +158,10 @@ export async function POST(request: NextRequest){
         message:{
           role:"assistant",
           content:
-            "Before I search Splunk, I need to narrow the investigation so I do not scan unnecessary data.\n\n"+
+            "I can work through this with you. Before I search Splunk, I need one detail to keep the search focused.\n\n"+
             questionsText,
         },
-        questions:plan.questions,
+        questions:plan.questions.slice(0,1),
         scope:plan.scope,
         searches:[],
         skills:[],

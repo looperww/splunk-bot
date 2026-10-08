@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAgentGuardrails, buildAgentPrompt, normalizeSearchLimit, resolveAgentSearchBudget } from "../src/lib/agent.ts";
+import { buildAgentGuardrails, buildAgentPrompt, FOLLOW_UP_SCOPE_PROMPT, normalizeSearchLimit, resolveAgentSearchBudget } from "../src/lib/agent.ts";
 
 test("uses the default bounded per-turn investigation budget",()=>{
   assert.deepEqual(resolveAgentSearchBudget(),{
@@ -27,4 +27,14 @@ test("rejects values outside the settings limit",()=>{
   }
   assert.equal(normalizeSearchLimit(1),1);
   assert.equal(normalizeSearchLimit(12),12);
+});
+
+test("keeps investigation follow-ups conversational and focused",()=>{
+  const prompt=buildAgentPrompt({objective:"",target:"",earliest:"",latest:"",dataSources:"",focus:""},[]);
+  assert.match(prompt,/conversational investigation partner/);
+  assert.match(prompt,/one safe, concrete next diagnostic step/);
+  assert.match(prompt,/Do not produce a full formal report in every reply/);
+  assert.match(FOLLOW_UP_SCOPE_PROMPT,/treat ordinary follow-ups as part of that same investigation/);
+  assert.match(FOLLOW_UP_SCOPE_PROMPT,/Do not reopen intake or ask the analyst to reconfirm scope fields/);
+  assert.doesNotMatch(buildAgentGuardrails(),/Finish with these sections/);
 });

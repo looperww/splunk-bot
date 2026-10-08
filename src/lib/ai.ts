@@ -17,6 +17,7 @@ import { eventMatchFingerprint } from "@/lib/event-matching";
 import {
   AGENT_CONFIG,
   buildAgentPrompt,
+  FOLLOW_UP_SCOPE_PROMPT,
   isAggregateSearch,
   normalizeSearchKey,
   resolveAgentSearchBudget,
@@ -216,7 +217,7 @@ const CLARIFICATION_PROMPT=[
   "Identify objective, target/entity, time window, data sources, and focus when these materially improve search efficiency.",
   "Use the selected AME event context when available and do not ask for information already present there.",
   "Ask only high-value questions that reduce search volume or resolve an important ambiguity.",
-  "Ask at most 3 questions in one turn.",
+  "Ask only one focused question in a turn. Choose the single missing detail that matters most right now; do not send a questionnaire.",
   "When an investigation starts, proactively ask the analyst for the missing objective, target, time window, data sources, or focus instead of immediately searching.",
   "Continue the clarification loop after each analyst answer until the scope is sufficient. Do not claim findings before evidence is collected.",
   "Do not infer the analyst's objective or silently choose a broad time window from an event timestamp. Ask the analyst to confirm those details unless they were explicitly provided.",
@@ -253,7 +254,7 @@ const clarificationTool={
       questions:{
         type:"array",
         minItems:1,
-        maxItems:3,
+        maxItems:1,
         items:{
           type:"object",
           additionalProperties:false,
@@ -395,7 +396,7 @@ function scopeFromUnknown(value:unknown):InvestigationScope{
 function questionsFromUnknown(value:unknown):InvestigationQuestion[]{
   if(!Array.isArray(value)) return [];
 
-  return value.slice(0,3).map((item,index)=>{
+  return value.slice(0,1).map((item,index)=>{
     const q=item&&typeof item==="object"
       ?(item as Partial<InvestigationQuestion>)
       :{};
@@ -478,7 +479,14 @@ export async function planInvestigation(
     ai.apiKey,
     ai.model,
     [
-      {role:"developer",content:CLARIFICATION_PROMPT+agentProfile+context+incident+"\n\n"+conversationStatePrompt(conversationState)},
+      {role:"developer",content:[
+        CLARIFICATION_PROMPT,
+        agentProfile,
+        context,
+        incident,
+        conversationStatePrompt(conversationState),
+        FOLLOW_UP_SCOPE_PROMPT,
+      ].filter(Boolean).join("\n\n")},
       ...messages.map((m)=>({role:m.role,content:m.content})),
     ],
     [clarificationTool,readyTool],
@@ -529,9 +537,13 @@ export async function planInvestigation(
       },
       questions:[
         {
-          id:"scope",
-          question:"What should I investigate, which entity should I focus on, and what time window should I use?",
-          options:["Around the alert ±24 hours","Last 24 hours","Last 7 days"],
+          id:"objective",
+          question:"What would you like me to determine from this investigation?",
+          options:[
+            "Whether this represents a real security incident",
+            "What happened and what activity occurred",
+            "Whether a host, user, or account was compromised",
+          ],
         },
       ],
     },
