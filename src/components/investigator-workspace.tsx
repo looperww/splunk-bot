@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
 import { ShieldCheckIcon } from "@phosphor-icons/react";
@@ -238,7 +238,7 @@ export default function InvestigatorWorkspace(){
   const [dialogLoading,setDialogLoading]=useState(false);
   const [draft,setDraft]=useState("");
   const [questions,setQuestions]=useState<InvestigationQuestion[]>([]);
-  const [sending,setSending]=useState(false);
+  const [sendingInvestigationIds,setSendingInvestigationIds]=useState<string[]>([]);
   const [deleting,setDeleting]=useState(false);
   const [reportConfirmOpen,setReportConfirmOpen]=useState(false);
   const [generatingReport,setGeneratingReport]=useState(false);
@@ -267,6 +267,23 @@ export default function InvestigatorWorkspace(){
   const [priorReviewWarning,setPriorReviewWarning]=useState("");
   const [pendingAlert,setPendingAlert]=useState<AmeEvent|null>(null);
   const [reusingPriorClose,setReusingPriorClose]=useState(false);
+
+  const activeInvestigationIdRef=useRef<string|null>(null);
+  const dialogOpenRef=useRef(false);
+  const backgroundNoticeRef=useRef("");
+  activeInvestigationIdRef.current=activeInvestigation?.id??null;
+  dialogOpenRef.current=dialogOpen;
+  const sending=activeInvestigation!==null&&sendingInvestigationIds.includes(activeInvestigation.id);
+  backgroundNoticeRef.current=dialogOpen&&sending&&activeInvestigation
+    ?`${activeInvestigation.title} will continue in the background. Reopen it from the investigation list to view the response.`
+    :"";
+
+  function setInvestigationSending(id:string,isSending:boolean){
+    setSendingInvestigationIds((current)=>{
+      if(isSending) return current.includes(id)?current:[...current,id];
+      return current.filter((candidate)=>candidate!==id);
+    });
+  }
 
   const selectedAgent=agents.find((agent)=>agent.id===agentId);
   const bulkCloseMatchCount=bulkCloseNotification
@@ -394,6 +411,10 @@ export default function InvestigatorWorkspace(){
     document.body.style.overflow="hidden";
     function onKeyDown(event:KeyboardEvent){
       if(event.key==="Escape"){
+        if(backgroundNoticeRef.current){
+          dialogOpenRef.current=false;
+          setNotice(backgroundNoticeRef.current);
+        }
         setDialogOpen(false);
         setScenarioDialogOpen(false);
         setIntakeOpen(false);
@@ -491,7 +512,7 @@ export default function InvestigatorWorkspace(){
           connectionId:selectedConnection.id,
           agentId,
           aiModel:defaultAiModel,
-          thinkEnabled:false,
+          thinkEnabled:true,
           eventContext:input.eventContext,
           incidentContext:input.incidentContext,
           messages:[welcome],
@@ -501,8 +522,10 @@ export default function InvestigatorWorkspace(){
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to create investigation.");
       setInvestigations((current)=>[data.investigation!,...current.filter((item)=>item.id!==data.investigation!.id)]);
       setActiveInvestigation(data.investigation);
+      activeInvestigationIdRef.current=data.investigation.id;
       setQuestions([]);
       setDraft("");
+      dialogOpenRef.current=true;
       setDialogOpen(true);
       return data.investigation;
     }catch(reason){
@@ -624,16 +647,22 @@ export default function InvestigatorWorkspace(){
   async function openInvestigation(id:string){
     setDialogLoading(true);
     setError("");
+    setActiveInvestigation(null);
+    setQuestions([]);
+    activeInvestigationIdRef.current=null;
+    dialogOpenRef.current=true;
     setDialogOpen(true);
     try{
       const response=await fetch("/api/investigations/"+encodeURIComponent(id),{cache:"no-store"});
       const data=await response.json() as {investigation?:InvestigationRecord;error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to load investigation.");
       setActiveInvestigation(data.investigation);
+      activeInvestigationIdRef.current=data.investigation.id;
       setQuestions([]);
       setDraft("");
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to load investigation.");
+      dialogOpenRef.current=false;
       setDialogOpen(false);
     }finally{
       setDialogLoading(false);
@@ -695,7 +724,7 @@ export default function InvestigatorWorkspace(){
           values:scenarioValues,
           connectionId:selectedConnection.id,
           aiModel:defaultAiModel,
-          thinkEnabled:false,
+          thinkEnabled:true,
         }),
       });
       const data=await response.json() as {
@@ -716,6 +745,8 @@ export default function InvestigatorWorkspace(){
         ...current.filter((item)=>item.id!==data.investigation!.id),
       ]);
       setActiveInvestigation(data.investigation);
+      activeInvestigationIdRef.current=data.investigation.id;
+      dialogOpenRef.current=true;
       setDialogOpen(true);
       setQuestions([]);
       setDraft("");
@@ -727,7 +758,6 @@ export default function InvestigatorWorkspace(){
       setError(reason instanceof Error?reason.message:"Failed to start incident investigation.");
     }finally{
       setSavingIntake(false);
-      setSending(false);
     }
   }
 
@@ -833,9 +863,14 @@ export default function InvestigatorWorkspace(){
       budget:data.budget??record.budget,
       updatedAt:new Date().toISOString(),
     };
-    setActiveInvestigation(updated);
-    setQuestions(data.questions??[]);
+    setActiveInvestigation((current)=>current?.id===updated.id?updated:current);
+    if(activeInvestigationIdRef.current===updated.id){
+      setQuestions(data.questions??[]);
+    }
     setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+    if(!dialogOpenRef.current||activeInvestigationIdRef.current!==updated.id){
+      setNotice(`${record.title} finished in the background. Reopen it from the investigation list to view the response.`);
+    }
     return updated;
   }
 
@@ -856,7 +891,7 @@ export default function InvestigatorWorkspace(){
     setActiveInvestigation(optimistic);
     setInvestigations((current)=>current.map((item)=>item.id===optimistic.id?optimistic:item));
     setQuestions([]);
-    setSending(true);
+    setInvestigationSending(optimistic.id,true);
     void checkAbuseIpdb(optimistic);
     try{
       await runAgent(optimistic,optimistic.messages);
@@ -866,12 +901,15 @@ export default function InvestigatorWorkspace(){
         ...optimistic,
         messages:[...optimistic.messages,{id:crypto.randomUUID(),role:"assistant" as const,content:message}],
       };
-      setActiveInvestigation(updated);
+      setActiveInvestigation((current)=>current?.id===updated.id?updated:current);
       setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
       setError(message);
+      if(!dialogOpenRef.current||activeInvestigationIdRef.current!==updated.id){
+        setNotice(`${record.title} stopped with an error in the background. Reopen it to review the error and continue troubleshooting.`);
+      }
       await persistInvestigation(updated);
     }finally{
-      setSending(false);
+      setInvestigationSending(optimistic.id,false);
     }
   }
 
@@ -885,18 +923,21 @@ export default function InvestigatorWorkspace(){
     setActiveInvestigation(optimistic);
     setDraft("");
     setQuestions([]);
-    setSending(true);
+    setInvestigationSending(optimistic.id,true);
     setError("");
     try{
       await runAgent(optimistic,nextMessages);
     }catch(reason){
       const message="Investigation error: "+(reason instanceof Error?reason.message:"Unknown error.");
       const updated={...optimistic,messages:[...nextMessages,{id:crypto.randomUUID(),role:"assistant" as const,content:message}]};
-      setActiveInvestigation(updated);
+      setActiveInvestigation((current)=>current?.id===updated.id?updated:current);
       setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+      if(!dialogOpenRef.current||activeInvestigationIdRef.current!==updated.id){
+        setNotice(`${previous.title} stopped with an error in the background. Reopen it to review the error and continue troubleshooting.`);
+      }
       await persistInvestigation(updated);
     }finally{
-      setSending(false);
+      setInvestigationSending(optimistic.id,false);
     }
   }
 
@@ -1181,7 +1222,11 @@ export default function InvestigatorWorkspace(){
   }
 
   function closeDialogs(){
-    if(sending||deleting||generatingReport||savingClosure||learningDraftLoading||savingLearning) return;
+    if(deleting||generatingReport||savingClosure||learningDraftLoading||savingLearning) return;
+    const continuingInBackground=Boolean(
+      dialogOpen&&activeInvestigation&&sendingInvestigationIds.includes(activeInvestigation.id),
+    );
+    dialogOpenRef.current=false;
     setDialogOpen(false);
     setScenarioDialogOpen(false);
     setIntakeOpen(false);
@@ -1193,11 +1238,19 @@ export default function InvestigatorWorkspace(){
     setPendingAlert(null);
     setPriorCloseMatches([]);
     setLearningDraft(null);
-    setActiveInvestigation(null);
+    if(continuingInBackground&&activeInvestigation){
+      setNotice(`${activeInvestigation.title} will continue in the background. Reopen it from the investigation list to view the response.`);
+    }else{
+      setActiveInvestigation(null);
+      activeInvestigationIdRef.current=null;
+    }
     setQuestions([]);
   }
 
   function investigationCard(item:InvestigationRecord){
+    const runningInBackground=sendingInvestigationIds.includes(item.id)&&(
+      !dialogOpen||activeInvestigation?.id!==item.id
+    );
     const lastMessage=item.messages[item.messages.length-1];
     const closedDecision=item.kind==="alert"&&item.status==="closed"
       ?item.closureClassification
@@ -1220,7 +1273,7 @@ export default function InvestigatorWorkspace(){
           <strong>{item.title}</strong>
         </span>
         <p>{item.description||lastMessage?.content||"No description yet."}</p>
-        <small>Updated {formatDate(item.updatedAt)} · {item.messages.length} messages · {item.searches.length} searches</small>
+        <small>{runningInBackground?"Running in background · ":""}Updated {formatDate(item.updatedAt)} · {item.messages.length} messages · {item.searches.length} searches</small>
       </span>
       <span className="investigation-open-mark">Open →</span>
     </button>;
@@ -1510,9 +1563,9 @@ export default function InvestigatorWorkspace(){
                 onClick={()=>void reviewSimilarEvents(activeInvestigation)}
                 disabled={similarityReviewLoading}
               >{similarityReviewLoading?"Reviewing events…":"Find similar events"}</button>}
-              <button className="secondary-button" type="button" onClick={()=>activeInvestigation.status==="ongoing"?void openClosureReview():void setInvestigationStatus("ongoing")} disabled={closureSuggestionLoading}>{activeInvestigation.status==="ongoing"?(closureSuggestionLoading?"Preparing review…":"Close investigation"):"Reopen investigation"}</button>
-              <button className="secondary-button" type="button" onClick={()=>void deleteActiveInvestigation()} disabled={deleting}>{deleting?"Deleting…":"Delete investigation"}</button>
-              <button className="icon-button" type="button" onClick={closeDialogs} aria-label="Close">×</button>
+              <button className="secondary-button" type="button" onClick={()=>activeInvestigation.status==="ongoing"?void openClosureReview():void setInvestigationStatus("ongoing")} disabled={closureSuggestionLoading||sending}>{activeInvestigation.status==="ongoing"?(closureSuggestionLoading?"Preparing review…":"Close investigation"):"Reopen investigation"}</button>
+              <button className="secondary-button" type="button" onClick={()=>void deleteActiveInvestigation()} disabled={deleting||sending}>{deleting?"Deleting…":"Delete investigation"}</button>
+              <button className="icon-button" type="button" onClick={closeDialogs} aria-label={sending?"Close window; investigation continues in background":"Close"} title={sending?"Close window; investigation continues in background":"Close"}>×</button>
             </div>
           </header>
           <div className="investigation-dialog-body">
