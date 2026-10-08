@@ -8,6 +8,7 @@ const INPUT_SAFETY_RATIO=0.97;
 const INPUT_SAFETY_FLOOR=256;
 
 const contextWindows:[RegExp,number][]=[
+  [/^gpt-6(?:-|$)/,1_050_000],
   [/^gpt-5\.6(?:-|$)/,1_050_000],
   [/^gpt-5\.5(?:-|$)/,1_050_000],
   [/^gpt-5\.4-(?:mini|nano)(?:-|$)/,400_000],
@@ -29,7 +30,7 @@ let legacyTokenizer:Tiktoken|undefined;
 
 function tokenizerFor(model:string):Tiktoken{
   const normalized=model.toLowerCase();
-  const modern=/^(gpt-5|gpt-4\.1|gpt-4o|o1|o3|o4)/.test(normalized);
+  const modern=/^(gpt-6|gpt-5|gpt-4\.1|gpt-4o|o1|o3|o4)/.test(normalized);
   if(modern){
     modernTokenizer??=new Tiktoken(o200kRanks);
     return modernTokenizer;
@@ -45,7 +46,7 @@ export function modelContextWindowTokens(model:string):number{
 
 function modelOutputLimit(model:string):number{
   const normalized=model.trim().toLowerCase();
-  if(/^gpt-5\.\d+(?:-|$)/.test(normalized)||/^gpt-5(?:-|$)/.test(normalized)) return 128_000;
+  if(/^gpt-6(?:-|$)/.test(normalized)||/^gpt-5\.\d+(?:-|$)/.test(normalized)||/^gpt-5(?:-|$)/.test(normalized)) return 128_000;
   if(/^gpt-4\.1(?:-|$)/.test(normalized)) return 32_768;
   if(/^gpt-4o(?:-|$)/.test(normalized)) return 16_384;
   if(/^o[134](?:-|$)/.test(normalized)) return 16_384;
