@@ -10,12 +10,19 @@ import {
   GENERAL_CHAT_AGENT_ID,
   GENERAL_CHAT_AGENT_IDENTITY,
   GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION,
+  GENERAL_CHAT_AGENT_LEGACY_GENERAL_GUARDRAILS,
+  GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS,
   GENERAL_CHAT_AGENT_LEGACY_IDENTITY,
   GENERAL_CHAT_AGENT_LEGACY_INSTRUCTIONS,
   GENERAL_CHAT_AGENT_LEGACY_METHOD,
+  GENERAL_CHAT_AGENT_LEGACY_READONLY_GUARDRAILS,
   GENERAL_CHAT_AGENT_INSTRUCTIONS,
   GENERAL_CHAT_AGENT_METHOD,
   GENERAL_CHAT_AGENT_NAME,
+  GENERAL_CHAT_AGENT_PREVIOUS_DESCRIPTION,
+  GENERAL_CHAT_AGENT_PREVIOUS_IDENTITY,
+  GENERAL_CHAT_AGENT_PREVIOUS_GUARDRAILS,
+  GENERAL_CHAT_AGENT_PREVIOUS_METHOD,
 } from "@/lib/agent-defaults";
 
 let pool:Pool|undefined;
@@ -197,6 +204,17 @@ async function createSchema():Promise<void>{
 
       ALTER TABLE ai_settings
         ADD COLUMN IF NOT EXISTS max_searches_per_turn INTEGER NOT NULL DEFAULT 6;
+
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id TEXT PRIMARY KEY CHECK (id='default'),
+        splunk_request_timeout_seconds INTEGER NOT NULL DEFAULT 30
+          CHECK (splunk_request_timeout_seconds BETWEEN 10 AND 180),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+
+      INSERT INTO app_settings(id,splunk_request_timeout_seconds)
+      VALUES('default',30)
+      ON CONFLICT(id) DO NOTHING;
 
       CREATE TABLE IF NOT EXISTS abuse_ipdb_settings (
         id TEXT PRIMARY KEY,
@@ -498,22 +516,53 @@ async function createSchema():Promise<void>{
         FALSE
       ) ON CONFLICT(id) DO UPDATE SET
         description=CASE
-          WHEN investigation_agents.description=$general_legacy_description$${GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION}$general_legacy_description$
+          WHEN investigation_agents.description IN (
+            $general_legacy_description$${GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION}$general_legacy_description$,
+            $general_previous_description$${GENERAL_CHAT_AGENT_PREVIOUS_DESCRIPTION}$general_previous_description$
+          )
           THEN EXCLUDED.description ELSE investigation_agents.description END,
         instructions=CASE
           WHEN investigation_agents.instructions=$general_legacy_instructions$${GENERAL_CHAT_AGENT_LEGACY_INSTRUCTIONS}$general_legacy_instructions$
           THEN EXCLUDED.instructions ELSE investigation_agents.instructions END,
         identity_text=CASE
-          WHEN investigation_agents.identity_text=$general_legacy_identity$${GENERAL_CHAT_AGENT_LEGACY_IDENTITY}$general_legacy_identity$
+          WHEN investigation_agents.identity_text IN (
+            $general_legacy_identity$${GENERAL_CHAT_AGENT_LEGACY_IDENTITY}$general_legacy_identity$,
+            $general_previous_identity$${GENERAL_CHAT_AGENT_PREVIOUS_IDENTITY}$general_previous_identity$
+          )
           THEN EXCLUDED.identity_text ELSE investigation_agents.identity_text END,
         method_text=CASE
-          WHEN investigation_agents.method_text=$general_legacy_method$${GENERAL_CHAT_AGENT_LEGACY_METHOD}$general_legacy_method$
-          THEN EXCLUDED.method_text ELSE investigation_agents.method_text END
+          WHEN investigation_agents.method_text IN (
+            $general_legacy_method$${GENERAL_CHAT_AGENT_LEGACY_METHOD}$general_legacy_method$,
+            $general_previous_method$${GENERAL_CHAT_AGENT_PREVIOUS_METHOD}$general_previous_method$
+          )
+          THEN EXCLUDED.method_text ELSE investigation_agents.method_text END,
+        guardrails_text=CASE
+          WHEN investigation_agents.guardrails_text IN (
+            $general_legacy_guardrails$${GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS}$general_legacy_guardrails$,
+            $general_previous_guardrails$${GENERAL_CHAT_AGENT_PREVIOUS_GUARDRAILS}$general_previous_guardrails$,
+            $general_readonly_guardrails$${GENERAL_CHAT_AGENT_LEGACY_READONLY_GUARDRAILS}$general_readonly_guardrails$,
+            $general_general_guardrails$${GENERAL_CHAT_AGENT_LEGACY_GENERAL_GUARDRAILS}$general_general_guardrails$
+          ) THEN EXCLUDED.guardrails_text ELSE investigation_agents.guardrails_text END
       WHERE
-        investigation_agents.description=$general_legacy_description$${GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION}$general_legacy_description$
+        investigation_agents.description IN (
+          $general_legacy_description$${GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION}$general_legacy_description$,
+          $general_previous_description$${GENERAL_CHAT_AGENT_PREVIOUS_DESCRIPTION}$general_previous_description$
+        )
         OR investigation_agents.instructions=$general_legacy_instructions$${GENERAL_CHAT_AGENT_LEGACY_INSTRUCTIONS}$general_legacy_instructions$
-        OR investigation_agents.identity_text=$general_legacy_identity$${GENERAL_CHAT_AGENT_LEGACY_IDENTITY}$general_legacy_identity$
-        OR investigation_agents.method_text=$general_legacy_method$${GENERAL_CHAT_AGENT_LEGACY_METHOD}$general_legacy_method$;
+        OR investigation_agents.identity_text IN (
+          $general_legacy_identity$${GENERAL_CHAT_AGENT_LEGACY_IDENTITY}$general_legacy_identity$,
+          $general_previous_identity$${GENERAL_CHAT_AGENT_PREVIOUS_IDENTITY}$general_previous_identity$
+        )
+        OR investigation_agents.method_text IN (
+          $general_legacy_method$${GENERAL_CHAT_AGENT_LEGACY_METHOD}$general_legacy_method$,
+          $general_previous_method$${GENERAL_CHAT_AGENT_PREVIOUS_METHOD}$general_previous_method$
+        )
+        OR investigation_agents.guardrails_text IN (
+          $general_legacy_guardrails$${GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS}$general_legacy_guardrails$,
+          $general_previous_guardrails$${GENERAL_CHAT_AGENT_PREVIOUS_GUARDRAILS}$general_previous_guardrails$,
+          $general_readonly_guardrails$${GENERAL_CHAT_AGENT_LEGACY_READONLY_GUARDRAILS}$general_readonly_guardrails$,
+          $general_general_guardrails$${GENERAL_CHAT_AGENT_LEGACY_GENERAL_GUARDRAILS}$general_general_guardrails$
+        );
 
 
     `);

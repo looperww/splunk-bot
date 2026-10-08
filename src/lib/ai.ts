@@ -6,6 +6,7 @@ import {
   executeGeneralChatTool,
   generalChatInvestigationContext,
   GENERAL_CHAT_TOOLS,
+  GENERAL_CHAT_TOOLS_WITH_SETTINGS,
   redactSensitiveData,
   serializeGeneralToolOutput,
 } from "@/lib/general-chat-tools";
@@ -24,6 +25,7 @@ import { describeOutboundFetchError } from "@/lib/outbound-http";
 import { eventMatchFingerprint } from "@/lib/event-matching";
 import { fitModelRequest } from "@/lib/model-context";
 import { reasoningEffortForModel } from "@/lib/reasoning-mode";
+import { requestedAppSettingChanges } from "@/lib/settings-policy";
 import {
   AGENT_CONFIG,
   buildAgentPrompt,
@@ -449,7 +451,10 @@ export async function respondToGeneralChat(
   if(ai.provider!=="openai"||!ai.apiKey){
     throw new Error("General Chat requires an OpenAI API key. Configure the OpenAI provider in Settings first.");
   }
-  const generalToolNames=["query_app_database","search_app_documentation","search_app_source","test_splunk_connection","search_splunk"];
+  const latestUserMessage=[...messages].reverse().find((message)=>message.role==="user")?.content??"";
+  const requestedSettings=requestedAppSettingChanges(latestUserMessage);
+  const availableTools=requestedSettings.length?GENERAL_CHAT_TOOLS_WITH_SETTINGS:GENERAL_CHAT_TOOLS;
+  const generalToolNames=["query_app_database","search_app_documentation","search_app_source","test_splunk_connection","search_splunk","update_app_setting"];
   const context=record?generalChatInvestigationContext(record):"";
   const conversationInput:unknown[]=[
     {role:"developer",content:buildGeneralChatPrompt(agent)},
@@ -466,7 +471,7 @@ export async function respondToGeneralChat(
     ai.apiKey,
     options?.model?.trim()||ai.model,
     conversationInput,
-    GENERAL_CHAT_TOOLS,
+    availableTools,
     undefined,
     undefined,
     options,
@@ -501,7 +506,7 @@ export async function respondToGeneralChat(
         const execution=await executeGeneralChatTool(
           String(call.name),
           args as Record<string,unknown>,
-          {connectionId:record?.connectionId??null},
+          {connectionId:record?.connectionId??null,requestedSettings},
         );
         toolOutput=serializeGeneralToolOutput(execution.output);
         if(execution.search) searches.push(execution.search);
@@ -528,7 +533,7 @@ export async function respondToGeneralChat(
       ai.apiKey,
       options?.model?.trim()||ai.model,
       conversationInput,
-      limitReached?[]:GENERAL_CHAT_TOOLS,
+      limitReached?[]:availableTools,
       undefined,
       limitReached?"none":undefined,
       options,
