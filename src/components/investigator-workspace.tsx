@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ShieldCheckIcon } from "@phosphor-icons/react";
 import { useAppState } from "@/components/app-shell";
 import MarkdownMessage from "@/components/markdown-message";
+import { GENERAL_CHAT_AGENT_ID } from "@/lib/agent-defaults";
 import type { InvestigationAgent } from "@/lib/agents";
 import { eventSourceIp } from "@/lib/event-matching";
 import { reasoningModeProfile } from "@/lib/reasoning-mode";
@@ -19,6 +20,7 @@ import type {
   ClosureSuggestion,
   DecisionClassification,
   IncidentContext,
+  InvestigationKind,
   InvestigationClosureNotification,
   InvestigationLearningDraft,
   InvestigationMatch,
@@ -36,7 +38,7 @@ type ChatResponse={
   scope?:InvestigationScope;
   searches?:SearchAudit[];
   skills?:string[];
-  budget?:AgentBudget;
+  budget?:AgentBudget|null;
   matchingInvestigations?:InvestigationMatch[];
   error?:string;
 };
@@ -482,23 +484,28 @@ export default function InvestigatorWorkspace(){
   }
 
   async function createInvestigation(input:{
-    kind:"alert"|"incident";
+    kind:InvestigationKind;
     title:string;
     description:string;
+    agentId?:string;
     sourceEventId?:string;
     incidentContext?:IncidentContext;
     eventContext?:Record<string,unknown>;
   }){
-    if(!selectedConnection){
+    const selectedAgentId=input.agentId??agentId;
+    const generalChat=input.kind==="chat"||selectedAgentId===GENERAL_CHAT_AGENT_ID;
+    if(!selectedConnection&&!generalChat){
       setError("Select a Splunk connection before starting an investigation.");
       return null;
     }
     const welcome:ChatMessage={
       id:crypto.randomUUID(),
       role:"assistant",
-      content:input.kind==="alert"
-        ? "Alert event loaded. Tell me what you would like to understand first, and I will establish a focused investigation scope before searching Splunk."
-        : "Scenario selected. Tell me the relevant target, time window, or evidence you already have. I will ask only the clarifying questions needed to start a focused investigation.",
+      content:input.kind==="chat"
+        ?"General Chat is ready. Tell me what you are troubleshooting, including any error message or output, and we will work through it together."
+        :input.kind==="alert"
+          ? "Alert event loaded. Tell me what you would like to understand first, and I will establish a focused investigation scope before searching Splunk."
+          : "Scenario selected. Tell me the relevant target, time window, or evidence you already have. I will ask only the clarifying questions needed to start a focused investigation.",
     };
     try{
       const response=await fetch("/api/investigations",{
@@ -509,8 +516,8 @@ export default function InvestigatorWorkspace(){
           title:input.title,
           description:input.description,
           sourceEventId:input.sourceEventId,
-          connectionId:selectedConnection.id,
-          agentId,
+          connectionId:selectedConnection?.id,
+          agentId:selectedAgentId,
           aiModel:defaultAiModel,
           thinkEnabled:true,
           eventContext:input.eventContext,
@@ -549,6 +556,17 @@ export default function InvestigatorWorkspace(){
         "Start the investigation for this Alert Manager event. Ask me the minimum high-value questions needed to establish the objective, target, and time window before searching Splunk.",
       );
     }
+  }
+
+  async function startGeneralChat(){
+    setError("");
+    setNotice("");
+    await createInvestigation({
+      kind:"chat",
+      title:"General troubleshooting chat",
+      description:"An open-ended conversation for diagnosing technical issues without automatic Splunk searches.",
+      agentId:GENERAL_CHAT_AGENT_ID,
+    });
   }
 
   async function investigateEvent(){
@@ -785,6 +803,7 @@ export default function InvestigatorWorkspace(){
 
   async function updateChatSettings(update:Partial<Pick<InvestigationRecord,"agentId"|"aiModel"|"thinkEnabled">>){
     if(!activeInvestigation) return;
+    if(update.agentId!==undefined) setQuestions([]);
     const updated={
       ...activeInvestigation,
       ...update,
@@ -860,7 +879,7 @@ export default function InvestigatorWorkspace(){
       scope:data.scope??record.scope,
       searches:data.searches?.length?[...record.searches,...data.searches]:record.searches,
       skills:data.skills??record.skills,
-      budget:data.budget??record.budget,
+      budget:data.budget===undefined?record.budget:data.budget,
       updatedAt:new Date().toISOString(),
     };
     setActiveInvestigation((current)=>current?.id===updated.id?updated:current);
@@ -1257,7 +1276,7 @@ export default function InvestigatorWorkspace(){
       :null;
     const label=closedDecision
       ?decisionLabel(closedDecision)
-      :item.kind==="alert"?"Alert":"Incident";
+      :item.kind==="chat"?"General chat":item.kind==="alert"?"Alert":"Incident";
     const badgeClass=closedDecision
       ?"investigation-kind decision-badge "+closedDecision
       :"investigation-kind "+item.kind;
@@ -1273,7 +1292,7 @@ export default function InvestigatorWorkspace(){
           <strong>{item.title}</strong>
         </span>
         <p>{item.description||lastMessage?.content||"No description yet."}</p>
-        <small>{runningInBackground?"Running in background · ":""}Updated {formatDate(item.updatedAt)} · {item.messages.length} messages · {item.searches.length} searches</small>
+        <small>{runningInBackground?"Running in background · ":""}Updated {formatDate(item.updatedAt)} · {item.messages.length} messages{item.kind==="chat"?"":" · "+item.searches.length+" searches"}</small>
       </span>
       <span className="investigation-open-mark">Open →</span>
     </button>;
@@ -1287,15 +1306,18 @@ export default function InvestigatorWorkspace(){
       <div>
         <div className="eyebrow">SECURITY INVESTIGATION</div>
         <h1>Dashboard</h1>
-        <p>Find an Alert Manager event or continue an investigation with a focused agent.</p>
+        <p>Investigate Alert Manager events, or open General Chat for any technical troubleshooting.</p>
       </div>
-      <button className="secondary-button" type="button" onClick={()=>void openScenarioPicker()}>New investigation</button>
+      <div className="page-heading-actions">
+        <button className="secondary-button" type="button" onClick={()=>void startGeneralChat()}>General chat</button>
+        <button className="primary-button" type="button" onClick={()=>void openScenarioPicker()}>New investigation</button>
+      </div>
     </header>
 
     {error&&<div className="error-box">{error}</div>}
     {notice&&<div className="notice-box" role="status">{notice}</div>}
     {!selectedConnection&&
-      <div className="notice-box">No Splunk connection selected. <Link href="/settings">Open Settings</Link>.</div>}
+      <div className="notice-box">No Splunk connection selected. General Chat works without one; choose a connection in <Link href="/settings">Settings</Link> to investigate Splunk events.</div>}
 
     <section className="panel dashboard-toolbar">
       <label>
@@ -1370,7 +1392,7 @@ export default function InvestigatorWorkspace(){
           <span className="count">{ongoing.length}</span>
         </div>
         {ongoing.length===0
-          ?<div className="empty">No ongoing investigations. Fetch an event or start a scenario to begin.</div>
+          ?<div className="empty">No ongoing conversations. Fetch an event, start a scenario, or open General Chat.</div>
           :<div className="investigation-list">{ongoing.map(investigationCard)}</div>}
       </div>
       <div className="panel investigation-group">
@@ -1502,9 +1524,9 @@ export default function InvestigatorWorkspace(){
         {dialogLoading||!activeInvestigation?<div className="empty">Loading investigation…</div>:<>
           <header className="investigation-dialog-header">
             <div>
-              <div className="eyebrow">{activeInvestigation.kind==="alert"?"ALERT INVESTIGATION":"INCIDENT INVESTIGATION"}</div>
+              <div className="eyebrow">{activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID?"GENERAL CHAT":activeInvestigation.kind==="alert"?"ALERT INVESTIGATION":"INCIDENT INVESTIGATION"}</div>
               <h2 id="investigation-dialog-title">{activeInvestigation.title}</h2>
-              <p>{activeInvestigation.description||"Continue the conversation to establish scope, search evidence, and produce an incident report."}</p>
+              <p>{activeInvestigation.description||((activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)?"Open-ended troubleshooting conversation. Share the problem and we will work through it together.":"Continue the conversation to establish scope, search evidence, and produce an incident report.")}</p>
               <div className="investigation-chat-settings" aria-label="Chat AI settings">
                 <label>
                   <span>Agent</span>
@@ -1563,17 +1585,18 @@ export default function InvestigatorWorkspace(){
                 onClick={()=>void reviewSimilarEvents(activeInvestigation)}
                 disabled={similarityReviewLoading}
               >{similarityReviewLoading?"Reviewing events…":"Find similar events"}</button>}
-              <button className="secondary-button" type="button" onClick={()=>activeInvestigation.status==="ongoing"?void openClosureReview():void setInvestigationStatus("ongoing")} disabled={closureSuggestionLoading||sending}>{activeInvestigation.status==="ongoing"?(closureSuggestionLoading?"Preparing review…":"Close investigation"):"Reopen investigation"}</button>
+              <button className="secondary-button" type="button" onClick={()=>activeInvestigation.kind==="chat"?void setInvestigationStatus(activeInvestigation.status==="ongoing"?"closed":"ongoing"):activeInvestigation.status==="ongoing"?void openClosureReview():void setInvestigationStatus("ongoing")} disabled={closureSuggestionLoading||sending}>{activeInvestigation.kind==="chat"?(activeInvestigation.status==="ongoing"?"Close chat":"Reopen chat"):activeInvestigation.status==="ongoing"?(closureSuggestionLoading?"Preparing review…":"Close investigation"):"Reopen investigation"}</button>
               <button className="secondary-button" type="button" onClick={()=>void deleteActiveInvestigation()} disabled={deleting||sending}>{deleting?"Deleting…":"Delete investigation"}</button>
               <button className="icon-button" type="button" onClick={closeDialogs} aria-label={sending?"Close window; investigation continues in background":"Close"} title={sending?"Close window; investigation continues in background":"Close"}>×</button>
             </div>
           </header>
-          <div className="investigation-dialog-body">
+          <div className={"investigation-dialog-body"+((activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)?" general-chat-body":"")}>
             <section className="investigation-chat-column">
               <div className="investigation-chat-heading">
-                <div><div className="eyebrow">CONVERSATION</div><h3>Investigation chat</h3></div>
+                <div><div className="eyebrow">CONVERSATION</div><h3>{activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID?"General chat":"Investigation chat"}</h3></div>
                 <span className="count">{activeInvestigation.messages.length}</span>
               </div>
+              {(activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)&&<p className="general-chat-note">General Chat uses the conversation you provide. It will not run Splunk searches or change systems.</p>}
               <div className="investigation-chat-messages">
                 {activeInvestigation.messages.map((message,index)=><div key={message.id??String(index)} className={"message "+message.role}>
                   <div className="message-role">{message.role==="assistant"?(activeChatAgent?.name??"SPLUNK BOT"):"YOU"}</div>
@@ -1586,7 +1609,7 @@ export default function InvestigatorWorkspace(){
                 {sending&&<div className="message assistant"><div className="message-role">{activeChatAgent?.name??"SPLUNK BOT"}</div><div className="message-content">Thinking this through…</div></div>}
               </div>
               {questions.length>0&&<div className="questions">
-                <div className="questions-title">One detail before I search</div>
+                <div className="questions-title">{activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID?"Follow-up question":"One detail before I search"}</div>
                 {questions.map((question)=><div className="question-card" key={question.id}>
                   <div className="question-text">{question.question}</div>
                   {question.options.length>0&&<div className="option-row">{question.options.map((option)=><button key={option} className="option-button" disabled={sending} onClick={()=>void sendMessage(option)}>{option}</button>)}</div>}
@@ -1594,10 +1617,10 @@ export default function InvestigatorWorkspace(){
               </div>}
               <div className="investigation-composer">
                 <textarea value={draft} onChange={(event)=>setDraft(event.target.value)} onKeyDown={(event)=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void sendMessage();}}} placeholder="Ask a question, share an update, or work through a problem…" rows={4}/>
-                <div className="composer-footer"><span>Enter to send · Shift+Enter for a new line</span><button className="primary-button" type="button" onClick={()=>void sendMessage()} disabled={sending||!selectedConnection}>{sending?"Working…":"Send"}</button></div>
+                <div className="composer-footer"><span>Enter to send · Shift+Enter for a new line</span><button className="primary-button" type="button" onClick={()=>void sendMessage()} disabled={sending||activeInvestigation.status!=="ongoing"||(!selectedConnection&&activeInvestigation.kind!=="chat"&&activeInvestigation.agentId!==GENERAL_CHAT_AGENT_ID)}>{sending?"Working…":"Send"}</button></div>
               </div>
             </section>
-            <aside className="investigation-report-column">
+            {activeInvestigation.kind!=="chat"&&activeInvestigation.agentId!==GENERAL_CHAT_AGENT_ID&&<aside className="investigation-report-column">
               <div className="panel-heading"><div><div className="eyebrow">REPORT & EVIDENCE</div><h3>Final incident report</h3></div><span className="count">{activeInvestigation.searches.length}</span></div>
               {activeInvestigation.budget?.searchAttempts!==undefined&&<div className="search-budget-status" role="status">
                 <strong>This turn · {activeInvestigation.budget.searchesUsed}/{activeInvestigation.budget.searchLimit} searches completed</strong>
@@ -1679,7 +1702,7 @@ export default function InvestigatorWorkspace(){
                   {search.evidencePreview&&<pre>{JSON.stringify(search.evidencePreview,null,2)}</pre>}
                 </details>)}
               </div>}
-            </aside>
+            </aside>}
           </div>
         </>}
       </section>

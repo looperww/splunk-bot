@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAgentGuardrails, buildAgentPrompt, FOLLOW_UP_SCOPE_PROMPT, normalizeSearchLimit, resolveAgentSearchBudget } from "../src/lib/agent.ts";
+import { buildAgentGuardrails, buildAgentPrompt, buildGeneralChatPrompt, FOLLOW_UP_SCOPE_PROMPT, normalizeSearchLimit, resolveAgentSearchBudget } from "../src/lib/agent.ts";
 
 test("uses the default bounded per-turn investigation budget",()=>{
   assert.deepEqual(resolveAgentSearchBudget(),{
@@ -37,4 +37,18 @@ test("keeps investigation follow-ups conversational and focused",()=>{
   assert.match(FOLLOW_UP_SCOPE_PROMPT,/treat ordinary follow-ups as part of that same investigation/);
   assert.match(FOLLOW_UP_SCOPE_PROMPT,/Do not reopen intake or ask the analyst to reconfirm scope fields/);
   assert.doesNotMatch(buildAgentGuardrails(),/Finish with these sections/);
+});
+
+test("general chat skips investigation scope and tool-use instructions",()=>{
+  const prompt=buildGeneralChatPrompt({
+    name:"General Chat Agent",
+    description:"Open-ended technical troubleshooting.",
+    identity:"General assistant.",
+    method:"Diagnose collaboratively.",
+    instructions:"Follow the user's issue.",
+    guardrails:"No operational tools are available.",
+  });
+  assert.match(prompt,/There is no Alert Manager intake/);
+  assert.match(prompt,/There are no tools available in this chat/);
+  assert.doesNotMatch(prompt,/at most \d+ Splunk searches/);
 });

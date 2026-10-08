@@ -42,7 +42,7 @@ function mapInvestigation(row:Row):InvestigationRecord{
   const budget=recordValue(row.budget) as AgentBudget|null;
   const searches=Array.isArray(row.searches)?row.searches as SearchAudit[]:[];
   const skills=Array.isArray(row.skills)?row.skills.map(String):[];
-  const kind=row.kind==="incident"?"incident":"alert";
+  const kind=row.kind==="incident"?"incident":row.kind==="chat"?"chat":"alert";
   const status=row.status==="closed"?"closed":"ongoing";
 
   return {
@@ -275,7 +275,7 @@ export async function createInvestigation(input:{
   const title=input.title.trim();
   if(!title) throw new Error("Investigation title is required.");
   if(title.length>240) throw new Error("Investigation title is too long.");
-  if(input.kind!=="alert"&&input.kind!=="incident") throw new Error("Investigation type is invalid.");
+  if(input.kind!=="alert"&&input.kind!=="incident"&&input.kind!=="chat") throw new Error("Investigation type is invalid.");
 
   const id=randomUUID();
   await query(

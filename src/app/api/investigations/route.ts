@@ -38,7 +38,7 @@ export async function POST(request:NextRequest){
       messages?:ChatMessage[];
     };
     const investigation=await createInvestigation({
-      kind:body.kind=== "incident"?"incident":"alert",
+      kind:body.kind==="incident"?"incident":body.kind==="chat"?"chat":"alert",
       title:String(body.title??""),
       description:String(body.description??""),
       status:body.status==="closed"?"closed":"ongoing",

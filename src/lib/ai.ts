@@ -20,6 +20,7 @@ import { reasoningEffortForModel } from "@/lib/reasoning-mode";
 import {
   AGENT_CONFIG,
   buildAgentPrompt,
+  buildGeneralChatPrompt,
   FOLLOW_UP_SCOPE_PROMPT,
   isAggregateSearch,
   normalizeSearchKey,
@@ -429,6 +430,32 @@ async function callAI(
     throw new Error("AI request failed ("+response.status+"): "+text.slice(0,800));
   }
   throw new Error("AI request failed after the context-recovery retry.");
+}
+
+export async function respondToGeneralChat(
+  messages:ChatMessage[],
+  agent:InvestigationAgent,
+  options?:InvestigationAiOptions,
+):Promise<string>{
+  const ai=await getAiRuntimeSettings();
+  if(ai.provider!=="openai"||!ai.apiKey){
+    throw new Error("General Chat requires an OpenAI API key. Configure the OpenAI provider in Settings first.");
+  }
+  const response=await callAI(
+    ai.apiKey,
+    options?.model?.trim()||ai.model,
+    [
+      {role:"developer",content:buildGeneralChatPrompt(agent)},
+      ...messages.map((message)=>({role:message.role,content:message.content})),
+    ],
+    [],
+    undefined,
+    undefined,
+    options,
+  );
+  const content=extractText(response);
+  if(!content) throw new Error("The general chat agent returned no message. Please try again.");
+  return content;
 }
 
 function scopeFromUnknown(value:unknown):InvestigationScope{
