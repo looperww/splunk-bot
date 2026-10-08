@@ -25,6 +25,7 @@ import type {
   InvestigationRecord,
   InvestigationScope,
   SearchAudit,
+  SimilarityHighlight,
 } from "@/lib/types";
 
 type ChatResponse={
@@ -149,6 +150,25 @@ function createClosureNotification(input:{
     eventMatches,
     reviewWarning:input.reviewWarning,
   };
+}
+
+function SimilarityHighlights({
+  sourceTitle,
+  title,
+  highlights,
+}:{
+  sourceTitle:string;
+  title:string;
+  highlights?:SimilarityHighlight[];
+}){
+  const titleMatches=sourceTitle.trim().toLowerCase()===title.trim().toLowerCase();
+  if(!titleMatches&&!highlights?.length) return null;
+  return <div className="similarity-highlights" aria-label="Shared event details">
+    {titleMatches&&<span className="similarity-highlight"><strong>Title</strong><span>matches</span></span>}
+    {highlights?.map((highlight)=><span className="similarity-highlight" key={highlight.label+":"+highlight.value}>
+      <strong>{highlight.label}</strong><code>{highlight.value}</code>
+    </span>)}
+  </div>;
 }
 
 function JsonValue({value,depth=0}:{value:unknown;depth?:number}):React.JSX.Element{
@@ -1777,12 +1797,12 @@ export default function InvestigatorWorkspace(){
         <div className="bulk-close-match-list" aria-label="Matching open events and investigations">
           {bulkCloseNotification.matches.map((match)=><label className="bulk-close-match" key={match.id}>
             <input type="checkbox" checked={bulkSelectedInvestigationIds.includes(match.id)} onChange={(event)=>setBulkSelectedInvestigationIds((current)=>event.target.checked?[...current,match.id]:current.filter((id)=>id!==match.id))}/>
-            <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)} · Exact investigation match</small></div>
+            <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)} · Exact investigation match</small><SimilarityHighlights sourceTitle={bulkCloseNotification.sourceTitle} title={match.title} highlights={match.similarityHighlights}/></div>
             <span className="investigation-status ongoing">ongoing</span>
           </label>)}
           {(bulkCloseNotification.eventMatches??[]).map((event)=><label className="bulk-close-match" key={event.eventId}>
             <input type="checkbox" checked={bulkSelectedEventIds.includes(event.eventId)} onChange={(change)=>setBulkSelectedEventIds((current)=>change.target.checked?[...current,event.eventId]:current.filter((id)=>id!==event.eventId))}/>
-            <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}{event.sourceIp?` · Source ${event.sourceIp}`:""}{event.destinationIp?` → ${event.destinationIp}`:""}</small>{event.similarityReason&&<small>AI: {event.similarityReason}{event.similarityConfidence!==undefined?` · ${Math.round(event.similarityConfidence*100)}% confidence`:""}</small>}</div>
+            <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}</small><SimilarityHighlights sourceTitle={bulkCloseNotification.sourceTitle} title={event.title} highlights={event.similarityHighlights?.length?event.similarityHighlights:[...(event.sourceIp?[{label:"Source IP",value:event.sourceIp}]:[]),...(event.destinationIp?[{label:"Destination IP",value:event.destinationIp}]:[])]}/>{event.similarityReason&&<small className="similarity-reason">AI similarity: {event.similarityReason}{event.similarityConfidence!==undefined?` · ${Math.round(event.similarityConfidence*100)}% confidence`:""}</small>}</div>
             <span className="investigation-status ongoing">{event.canClose===false?"review only":"recommended"}</span>
           </label>)}
         </div>

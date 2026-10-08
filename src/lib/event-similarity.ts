@@ -6,6 +6,7 @@ import {
   compareAlertEvents,
   eventDestinationIp,
   eventMatchFingerprint,
+  eventSimilarityHighlights,
   eventSourceIp,
 } from "@/lib/event-matching";
 import type {
@@ -185,18 +186,22 @@ export async function reviewOpenCachedEvents(
     const aiSame=assessment?.relationship==="same_decision"&&assessment.confidence>=0.7&&Boolean(assessment.reason.length>=12);
     if(assessments===null?!group.exact:!assessment||(assessment.relationship==="different"&&!group.exact)) return [];
     const canClose=assessments===null?group.exact:Boolean(aiSame);
-    return group.events.map((event)=>({
-      eventId:event.id,
-      title:event.title,
-      urgency:event.urgency??null,
-      createdAt:event.created??null,
-      matchKind:group.exact?"exact" as const:"ai_similar" as const,
-      similarityReason:assessment?.reason,
-      similarityConfidence:assessment?.confidence,
-      canClose,
-      sourceIp:eventSourceIp(eventContextFromAmeEvent(event)),
-      destinationIp:eventDestinationIp(eventContextFromAmeEvent(event)),
-    }));
+    return group.events.map((event)=>{
+      const context=eventContextFromAmeEvent(event);
+      return {
+        eventId:event.id,
+        title:event.title,
+        urgency:event.urgency??null,
+        createdAt:event.created??null,
+        matchKind:group.exact?"exact" as const:"ai_similar" as const,
+        similarityReason:assessment?.reason,
+        similarityConfidence:assessment?.confidence,
+        canClose,
+        sourceIp:eventSourceIp(context),
+        destinationIp:eventDestinationIp(context),
+        similarityHighlights:eventSimilarityHighlights(source.eventContext,context),
+      };
+    });
   });
   return {matches,warning};
 }

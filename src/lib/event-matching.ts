@@ -74,6 +74,54 @@ export function eventDestinationIp(context:Record<string,unknown>|null):string|n
   return destination||null;
 }
 
+const SIMILARITY_SIGNAL_FIELDS:{label:string;keys:string[]}[]=[
+  {label:"Source IP",keys:["srcip","src_ip","sourceip","source_ip"]},
+  {label:"Destination IP",keys:["dstip","dst_ip","destip","dest_ip","destinationip","destination_ip"]},
+  {label:"Host",keys:["host","hostname","dvc","device","src_host","dest_host"]},
+  {label:"User",keys:["user","username","user_name","account","src_user","dest_user"]},
+  {label:"Domain",keys:["domain","fqdn","dest_domain","destination_domain"]},
+  {label:"Process",keys:["process","process_name","processname","process_path","image"]},
+  {label:"File hash",keys:["sha256","sha1","md5","file_hash","hash"]},
+  {label:"IOC",keys:["ioc_desc","ioc","indicator","signature"]},
+  {label:"Destination port",keys:["dstport","dst_port","dest_port","destination_port","dport"]},
+  {label:"Service",keys:["service","app"]},
+];
+
+function signalValue(context:Record<string,unknown>,keys:string[]):string|null{
+  const raw=context.raw&&typeof context.raw==="object"&&!Array.isArray(context.raw)
+    ?context.raw as Record<string,unknown>
+    :null;
+  const sources=[notableFields(context),raw,context].filter(
+    (source):source is Record<string,unknown>=>Boolean(source),
+  );
+  for(const source of sources){
+    for(const key of keys){
+      const entry=Object.entries(source).find(([name])=>name.toLowerCase()===key);
+      if(!entry) continue;
+      const value=entry[1];
+      if(typeof value!=="string"&&typeof value!=="number") continue;
+      const normalized=String(value).trim();
+      if(!normalized||normalized.length>120||/^(?:-|unknown|null|undefined)$/i.test(normalized)) continue;
+      return normalized;
+    }
+  }
+  return null;
+}
+
+export function eventSimilarityHighlights(
+  source:Record<string,unknown>|null,
+  candidate:Record<string,unknown>|null,
+):{label:string;value:string}[]{
+  if(!source||!candidate) return [];
+  return SIMILARITY_SIGNAL_FIELDS.flatMap(({label,keys})=>{
+    const sourceValue=signalValue(source,keys);
+    const candidateValue=signalValue(candidate,keys);
+    return sourceValue&&candidateValue&&sourceValue.toLowerCase()===candidateValue.toLowerCase()
+      ?[{label,value:sourceValue}]
+      :[];
+  }).slice(0,8);
+}
+
 export function compareAlertEvents(current:EventMatchInput,previous:EventMatchInput):"exact"|"related_ioc"|null{
   const currentExact=eventMatchFingerprint(current);
   if(!currentExact) return null;
