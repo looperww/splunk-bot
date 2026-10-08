@@ -349,10 +349,15 @@ export default function InvestigatorWorkspace(){
     const notificationId=new URLSearchParams(window.location.search).get("notification");
     const openNotification=(id:string)=>{
       const notification=notifications.find((item)=>item.id===id);
-      if(!notification) return;
+      if(!notification) return false;
       showBulkCloseNotification(notification);
+      return true;
     };
-    if(notificationId) openNotification(notificationId);
+    if(notificationId&&openNotification(notificationId)){
+      const url=new URL(window.location.href);
+      url.searchParams.delete("notification");
+      window.history.replaceState(window.history.state,"",url.pathname+url.search+url.hash);
+    }
     function onNotification(event:Event){
       const id=(event as CustomEvent<string>).detail;
       if(typeof id==="string") openNotification(id);
@@ -1756,7 +1761,7 @@ export default function InvestigatorWorkspace(){
             <span className="investigation-status ongoing">ongoing</span>
           </label>)}
           {(bulkCloseNotification.eventMatches??[]).map((event)=><label className="bulk-close-match" key={event.eventId}>
-            <input type="checkbox" checked={bulkSelectedEventIds.includes(event.eventId)} disabled={event.canClose===false} onChange={(change)=>setBulkSelectedEventIds((current)=>change.target.checked?[...current,event.eventId]:current.filter((id)=>id!==event.eventId))}/>
+            <input type="checkbox" checked={bulkSelectedEventIds.includes(event.eventId)} onChange={(change)=>setBulkSelectedEventIds((current)=>change.target.checked?[...current,event.eventId]:current.filter((id)=>id!==event.eventId))}/>
             <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}{event.sourceIp?` · Source ${event.sourceIp}`:""}{event.destinationIp?` → ${event.destinationIp}`:""}</small>{event.similarityReason&&<small>AI: {event.similarityReason}{event.similarityConfidence!==undefined?` · ${Math.round(event.similarityConfidence*100)}% confidence`:""}</small>}</div>
             <span className="investigation-status ongoing">{event.canClose===false?"review only":"recommended"}</span>
           </label>)}
@@ -1766,7 +1771,7 @@ export default function InvestigatorWorkspace(){
 
         <div className="bulk-close-note">
           <ShieldCheckIcon size={19} weight="duotone"/>
-          <span>AI recommendations are advisory. Only checked events can receive the same decision; “review only” events need a separate investigation. This action changes Splunk Bot only; Splunk AME status is not changed.</span>
+          <span>AI recommendations are advisory. Review each alert before selecting it. “Review only” means AI did not recommend the same decision; you can still select it if you confirm the decision applies. This action changes Splunk Bot only; Splunk AME status is not changed.</span>
         </div>
 
         <div className="closure-review-footer">

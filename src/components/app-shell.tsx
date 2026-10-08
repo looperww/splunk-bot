@@ -323,7 +323,7 @@ export default function AppShell({
                         <span>{notification.sourceTitle}</span>
                         <small>{new Date(notification.createdAt).toLocaleString()}</small>
                       </div>
-                      <button className="secondary-button" type="button" onClick={()=>{setNotificationsOpen(false);window.dispatchEvent(new CustomEvent("splunk-bot-open-notification",{detail:notification.id}));router.push("/dashboard?notification="+encodeURIComponent(notification.id));}}>Review</button>
+                      <button className="secondary-button" type="button" onClick={()=>{setNotificationsOpen(false);if(pathname==="/dashboard"){window.dispatchEvent(new CustomEvent("splunk-bot-open-notification",{detail:notification.id}));}else{router.push("/dashboard?notification="+encodeURIComponent(notification.id));}}}>Review</button>
                     </article>)}
                   </div>}
               </div>}
