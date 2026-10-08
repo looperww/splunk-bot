@@ -295,7 +295,7 @@ export async function createInvestigation(input:{
       input.connectionId??null,
       input.agentId??null,
       input.aiModel?.trim().slice(0,128)||null,
-      input.thinkEnabled??false,
+      input.thinkEnabled??true,
       JSON.stringify(input.eventContext??null),
       JSON.stringify(input.incidentContext??null),
       JSON.stringify(input.messages??[]),
