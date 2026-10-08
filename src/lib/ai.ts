@@ -15,6 +15,7 @@ import { buildKnowledgePrompt, getSplunkKnowledge } from "@/lib/splunk-knowledge
 import { buildLearningPrompt, listLearnings } from "@/lib/learnings";
 import { describeOutboundFetchError } from "@/lib/outbound-http";
 import { eventMatchFingerprint } from "@/lib/event-matching";
+import { fitModelRequest } from "@/lib/model-context";
 import {
   AGENT_CONFIG,
   buildAgentPrompt,
@@ -35,13 +36,33 @@ import type {
 
 type OutputItem = {
   type?:string;
+  role?:string;
+  id?:string;
+  status?:string;
   call_id?:string;
   name?:string;
   arguments?:string;
-  content?:Array<{type?:string;text?:string}>;
+  content?:Array<{type?:string;text?:string;[key:string]:unknown}>;
+  [key:string]:unknown;
 };
 
 type OpenAIResponse = { id:string; output?:OutputItem[] };
+
+function replayResponseOutput(items:OutputItem[]):unknown[]{
+  return items.flatMap((item)=>{
+    if(!item||typeof item!=="object"||!item.type) return [];
+    const {created_by:_createdBy,parsed_arguments:_parsedArguments,...clean}=item;
+    if(clean.type!=="message"||!Array.isArray(clean.content)) return [clean];
+    const content=clean.content.map((part)=>{
+      if((part.type==="output_text"||part.type==="refusal")&&"parsed" in part){
+        const {parsed:_parsed,...inputPart}=part;
+        return inputPart;
+      }
+      return part;
+    });
+    return [{...clean,content}];
+  });
+}
 
 export type EventSimilarityCandidate={
   id:string;
@@ -167,6 +188,7 @@ export type InvestigationAiOptions={
 export type InvestigationConversationState={
   scope?:InvestigationScope|null;
   searches?:SearchAudit[];
+  toolContext?:unknown[];
   omittedMessages?:number;
 };
 
@@ -338,6 +360,20 @@ function extractText(response:OpenAIResponse):string{
   return chunks.join("\n").trim();
 }
 
+function isModelContextOverflow(status:number,responseText:string):boolean{
+  if(status!==400) return false;
+  const message=responseText.toLowerCase();
+  return [
+    "context window",
+    "context length",
+    "context_length_exceeded",
+    "maximum context",
+    "too many tokens",
+    "maximum number of tokens",
+    "input is too long",
+  ].some((indicator)=>message.includes(indicator));
+}
+
 async function callAI(
   apiKey:string,
   model:string,
@@ -348,36 +384,51 @@ async function callAI(
   options?:InvestigationAiOptions,
 ):Promise<OpenAIResponse>{
   const selectedModel=options?.model?.trim()||model;
+  let fitted=fitModelRequest(input,tools,selectedModel);
   const body:Record<string,unknown>={
     model:selectedModel,
     tools,
-    input,
+    input:fitted.input,
+    max_output_tokens:fitted.maxOutputTokens,
+    truncation:"disabled",
   };
   if(previousResponseId) body.previous_response_id=previousResponseId;
   if(toolChoice) body.tool_choice=toolChoice;
   if(options?.thinkEnabled&&supportsReasoningModel(selectedModel)) body.reasoning={effort:"medium"};
 
-  let response:Response;
-  try{
-    response=await fetch("https://api.openai.com/v1/responses",{
-      method:"POST",
-      headers:{
-        Authorization:"Bearer "+apiKey,
-        "Content-Type":"application/json",
-      },
-      body:JSON.stringify(body),
-      cache:"no-store",
-      signal:AbortSignal.timeout(60_000),
-    });
-  }catch(error){
-    throw new Error(describeOutboundFetchError("OpenAI",error));
-  }
+  for(let attempt=0;attempt<2;attempt++){
+    let response:Response;
+    try{
+      response=await fetch("https://api.openai.com/v1/responses",{
+        method:"POST",
+        headers:{
+          Authorization:"Bearer "+apiKey,
+          "Content-Type":"application/json",
+        },
+        body:JSON.stringify(body),
+        cache:"no-store",
+        signal:AbortSignal.timeout(60_000),
+      });
+    }catch(error){
+      throw new Error(describeOutboundFetchError("OpenAI",error));
+    }
 
-  const text=await response.text();
-  if(!response.ok){
+    const text=await response.text();
+    if(response.ok) return JSON.parse(text) as OpenAIResponse;
+    if(attempt===0&&isModelContextOverflow(response.status,text)){
+      fitted=fitModelRequest(
+        input,
+        tools,
+        selectedModel,
+        Math.ceil(fitted.contextWindowTokens*0.12),
+      );
+      body.input=fitted.input;
+      body.max_output_tokens=fitted.maxOutputTokens;
+      continue;
+    }
     throw new Error("AI request failed ("+response.status+"): "+text.slice(0,800));
   }
-  return JSON.parse(text) as OpenAIResponse;
+  throw new Error("AI request failed after the context-recovery retry.");
 }
 
 function scopeFromUnknown(value:unknown):InvestigationScope{
@@ -613,13 +664,16 @@ export async function investigate(
     conversationStatePrompt(conversationState,scope),
   ].join("\n\n");
 
+  const conversationInput:unknown[]=[
+    {role:"developer",content:developerPrompt},
+    ...(conversationState?.toolContext??[]),
+    ...messages.map((m)=>({role:m.role,content:m.content})),
+  ];
+  const newAiContext:unknown[]=[];
   let response=await callAI(
     ai.apiKey,
     ai.model,
-    [
-      {role:"developer",content:developerPrompt},
-      ...messages.map((m)=>({role:m.role,content:m.content})),
-    ],
+    conversationInput,
     [searchTool],
     undefined,
     undefined,
@@ -837,12 +891,15 @@ export async function investigate(
 
     if(!outputs.length) break;
 
+    const replayedOutput=replayResponseOutput(response.output??[]);
+    conversationInput.push(...replayedOutput,...outputs);
+    newAiContext.push(...replayedOutput,...outputs);
     response=await callAI(
       ai.apiKey,
       ai.model,
-      outputs,
+      conversationInput,
       recoveryStopped?[]:[searchTool],
-      response.id,
+      undefined,
       recoveryStopped?"none":undefined,
       options,
     );
@@ -857,20 +914,21 @@ export async function investigate(
 
   if(!finalMessage&&(reachedLimit||recoveryStopped||recoveryPending)){
     try{
+      conversationInput.push({
+        role:"developer",
+        content:[
+          "FINALIZE THIS INVESTIGATION TURN.",
+          "Do not call tools. Use only the conversation and search results or errors already available in this request.",
+          "Write a useful, readable report with the known scope, verified evidence, analysis, gaps, and human-approved next steps.",
+          "If no Splunk search succeeded, say that clearly and do not imply that the event was verified.",
+        ].join(" "),
+      });
       response=await callAI(
         ai.apiKey,
         ai.model,
-        [{
-          role:"developer",
-          content:[
-            "FINALIZE THIS INVESTIGATION TURN.",
-            "Do not call tools. Use only the conversation and search results or errors already available in the response history.",
-            "Write a useful, readable report with the known scope, verified evidence, analysis, gaps, and human-approved next steps.",
-            "If no Splunk search succeeded, say that clearly and do not imply that the event was verified.",
-          ].join(" "),
-        }],
+        conversationInput,
         [],
-        response.id,
+        undefined,
         "none",
         options,
       );
@@ -914,6 +972,7 @@ export async function investigate(
   return {
     message:{role:"assistant" as const,content:finalMessage},
     searches,
+    aiContext:newAiContext,
     skills:skills.map((skill)=>skill.name),
     budget:{
       searchesUsed:searchCount,

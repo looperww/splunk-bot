@@ -239,6 +239,7 @@ async function createSchema():Promise<void>{
         incident_context JSONB,
         abuse_ipdb JSONB,
         messages JSONB NOT NULL DEFAULT '[]'::jsonb,
+        ai_context JSONB NOT NULL DEFAULT '[]'::jsonb,
         report TEXT NOT NULL DEFAULT '',
         scope JSONB,
         searches JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -262,7 +263,8 @@ async function createSchema():Promise<void>{
         ADD COLUMN IF NOT EXISTS closure_reason TEXT NOT NULL DEFAULT '',
         ADD COLUMN IF NOT EXISTS ai_model TEXT,
         ADD COLUMN IF NOT EXISTS think_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-        ADD COLUMN IF NOT EXISTS abuse_ipdb JSONB;
+        ADD COLUMN IF NOT EXISTS abuse_ipdb JSONB,
+        ADD COLUMN IF NOT EXISTS ai_context JSONB NOT NULL DEFAULT '[]'::jsonb;
 
       CREATE TABLE IF NOT EXISTS investigation_learnings (
         id TEXT PRIMARY KEY,

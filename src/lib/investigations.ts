@@ -95,6 +95,53 @@ export async function getInvestigation(id:string):Promise<InvestigationRecord|nu
   return rows[0]?mapInvestigation(rows[0]):null;
 }
 
+export async function getInvestigationAiContext(id:string):Promise<unknown[]>{
+  await ensureSchema();
+  const rows=await query<Row>(
+    "SELECT ai_context FROM investigations WHERE id=$1 LIMIT 1",
+    [id],
+  );
+  return Array.isArray(rows[0]?.ai_context)?rows[0].ai_context:[];
+}
+
+export async function appendInvestigationAiContext(id:string,items:unknown[]):Promise<void>{
+  if(!items.length) return;
+  await ensureSchema();
+  const rows=await query<Row>(
+    `UPDATE investigations
+        SET ai_context=COALESCE(ai_context,'[]'::jsonb)||$2::jsonb,
+            updated_at=NOW()
+      WHERE id=$1
+      RETURNING id`,
+    [id,JSON.stringify(items)],
+  );
+  if(!rows[0]) throw new Error("Investigation not found.");
+}
+
+export async function appendInvestigationMessage(
+  id:string,
+  message:ChatMessage,
+):Promise<InvestigationRecord>{
+  await ensureSchema();
+  const rows=await query<Row>(
+    `UPDATE investigations
+        SET messages=CASE
+              WHEN EXISTS(
+                SELECT 1
+                  FROM jsonb_array_elements(COALESCE(messages,'[]'::jsonb)) AS saved_message
+                 WHERE saved_message->>'id'=$2
+              ) THEN messages
+              ELSE COALESCE(messages,'[]'::jsonb)||$3::jsonb
+            END,
+            updated_at=NOW()
+      WHERE id=$1
+      RETURNING *`,
+    [id,message.id??"",JSON.stringify([message])],
+  );
+  if(!rows[0]) throw new Error("Investigation not found.");
+  return mapInvestigation(rows[0]);
+}
+
 export async function findMatchingOpenInvestigations(
   investigation:InvestigationRecord,
 ):Promise<InvestigationMatch[]>{
@@ -263,6 +310,7 @@ export async function createInvestigation(input:{
 
 export async function updateInvestigation(id:string,input:{
   status?:InvestigationStatus;
+  agentId?:string|null;
   messages?:ChatMessage[];
   report?:string;
   scope?:InvestigationScope|null;
@@ -289,6 +337,7 @@ export async function updateInvestigation(id:string,input:{
             think_enabled=COALESCE($10,think_enabled),
             closure_classification=COALESCE($11,closure_classification),
             closure_reason=COALESCE($12,closure_reason),
+            agent_id=COALESCE($13,agent_id),
             updated_at=NOW()
       WHERE id=$1
       RETURNING *`,
@@ -305,6 +354,7 @@ export async function updateInvestigation(id:string,input:{
       input.thinkEnabled===undefined?null:input.thinkEnabled,
       input.closureClassification??null,
       input.closureReason===undefined?null:input.closureReason,
+      input.agentId===undefined?null:(input.agentId?.trim().slice(0,128)||null),
     ],
   );
   if(!rows[0]) throw new Error("Investigation not found.");

@@ -70,21 +70,6 @@ function formatDate(value:string|null|undefined){
   return date.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"});
 }
 
-function compactSearchHistory(searches:SearchAudit[]):SearchAudit[]{
-  return searches.slice(-8).map((search)=>({
-    ...search,
-    query:search.query.slice(0,1200),
-    evidencePreview:search.evidencePreview?.slice(0,2).map((row)=>Object.fromEntries(
-      Object.entries(row).slice(0,12).map(([key,value])=>[
-        key,
-        typeof value==="string"?value.slice(0,400)
-          :value===null||typeof value==="number"||typeof value==="boolean"?value
-            :String(JSON.stringify(value)??value).slice(0,400),
-      ]),
-    )),
-  }));
-}
-
 function formatSplQuery(query:string):string{
   let formatted="";
   let quote="";
@@ -756,6 +741,7 @@ export default function InvestigatorWorkspace(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           status:record.status,
+          agentId:record.agentId,
           messages:record.messages,
           report:record.report,
           scope:record.scope,
@@ -824,19 +810,16 @@ export default function InvestigatorWorkspace(){
     record:InvestigationRecord,
     nextMessages:ChatMessage[],
   ){
+    const latestMessage=nextMessages[nextMessages.length-1];
+    if(!latestMessage||latestMessage.role!=="user"){
+      throw new Error("The latest investigation message could not be sent.");
+    }
     const response=await fetch("/api/chat",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({
-        messages:nextMessages,
-        eventContext:record.eventContext??undefined,
-        incidentContext:record.incidentContext??undefined,
-        scope:record.scope??undefined,
-        searches:compactSearchHistory(record.searches),
-        connectionId:record.connectionId??selectedConnection?.id,
-        agentId:record.agentId??agentId,
-        model:record.aiModel??defaultAiModel,
-        thinkEnabled:record.thinkEnabled,
+        investigationId:record.id,
+        message:latestMessage,
       }),
     });
     const data=await response.json() as ChatResponse;
@@ -856,9 +839,6 @@ export default function InvestigatorWorkspace(){
     setActiveInvestigation(updated);
     setQuestions(data.questions??[]);
     setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
-    if(!await persistInvestigation(updated)){
-      setError("The AI responded, but the conversation could not be saved. Refreshing may lose recent chat context.");
-    }
     return updated;
   }
 
@@ -892,6 +872,7 @@ export default function InvestigatorWorkspace(){
       setActiveInvestigation(updated);
       setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
       setError(message);
+      await persistInvestigation(updated);
     }finally{
       setSending(false);
     }
@@ -916,6 +897,7 @@ export default function InvestigatorWorkspace(){
       const updated={...optimistic,messages:[...nextMessages,{id:crypto.randomUUID(),role:"assistant" as const,content:message}]};
       setActiveInvestigation(updated);
       setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+      await persistInvestigation(updated);
     }finally{
       setSending(false);
     }
