@@ -256,6 +256,7 @@ export default function InvestigatorWorkspace(){
     ?bulkCloseNotification.matches.length+(bulkCloseNotification.eventMatches?.length??0)
     :0;
   const bulkSelectedCount=bulkSelectedInvestigationIds.length+bulkSelectedEventIds.length;
+  const bulkAllSelected=bulkCloseMatchCount>0&&bulkSelectedCount===bulkCloseMatchCount;
   const selectedPriorClose=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
 
   function showBulkCloseNotification(notification:InvestigationClosureNotification){
@@ -1752,6 +1753,25 @@ export default function InvestigatorWorkspace(){
         <div className="bulk-close-decision">
           <div><span className="label">Same decision</span><strong>{decisionLabel(bulkCloseNotification.classification)}</strong></div>
           <div><span className="label">Reason</span><span>{bulkCloseNotification.reason}</span></div>
+        </div>
+
+        <div className="bulk-close-select-all-row">
+          <label className="bulk-close-select-all">
+            <input
+              type="checkbox"
+              aria-label="Select all matching alerts and investigations"
+              checked={bulkAllSelected}
+              ref={(input)=>{if(input) input.indeterminate=bulkSelectedCount>0&&!bulkAllSelected;}}
+              disabled={bulkClosing||bulkCloseMatchCount===0}
+              onChange={(change)=>{
+                const selected=change.target.checked;
+                setBulkSelectedInvestigationIds(selected?bulkCloseNotification.matches.map((match)=>match.id):[]);
+                setBulkSelectedEventIds(selected?(bulkCloseNotification.eventMatches??[]).map((event)=>event.eventId):[]);
+              }}
+            />
+            <span>Select all</span>
+          </label>
+          <span className="bulk-close-selection-count">{bulkSelectedCount} of {bulkCloseMatchCount} selected</span>
         </div>
 
         <div className="bulk-close-match-list" aria-label="Matching open events and investigations">
