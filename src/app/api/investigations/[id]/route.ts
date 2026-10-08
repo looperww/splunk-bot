@@ -38,6 +38,7 @@ export async function PATCH(
     const {id}=await context.params;
     const body=await request.json() as {
       status?:"ongoing"|"closed";
+      agentId?:string|null;
       messages?:ChatMessage[];
       report?:string;
       scope?:InvestigationScope|null;
@@ -49,6 +50,7 @@ export async function PATCH(
     };
     const investigation=await updateInvestigation(id,{
       status:body.status,
+      agentId:body.agentId===undefined?undefined:body.agentId===null?null:String(body.agentId),
       messages:Array.isArray(body.messages)?body.messages:undefined,
       report:body.report!==undefined?String(body.report):undefined,
       scope:body.scope,
