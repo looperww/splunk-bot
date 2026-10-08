@@ -1654,7 +1654,7 @@ export default function InvestigatorWorkspace(){
                 <div><div className="eyebrow">CONVERSATION</div><h3>{activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID?"General chat":"Investigation chat"}</h3></div>
                 <span className="count">{activeInvestigation.messages.length}</span>
               </div>
-              {(activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)&&<p className="general-chat-note">General Chat can consult the app documentation and safe database records, and run read-only Splunk searches. It will not expose credentials or change systems.</p>}
+              {(activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)&&<p className="general-chat-note">General Chat can inspect app documentation and safe database records, test the Splunk API connection, and run read-only searches. It will not expose credentials or change systems.</p>}
               <div className="investigation-chat-messages">
                 {activeInvestigation.messages.map((message,index)=><div key={message.id??String(index)} className={"message "+message.role}>
                   <div className="message-role">{message.role==="assistant"?(activeChatAgent?.name??"SPLUNK BOT"):"YOU"}</div>

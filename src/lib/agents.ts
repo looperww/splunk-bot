@@ -7,6 +7,7 @@ import {
   GENERAL_CHAT_AGENT_ID,
   GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION,
   GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS,
+  GENERAL_CHAT_AGENT_PREVIOUS_GUARDRAILS,
 } from "@/lib/agent-defaults";
 
 export type InvestigationAgent={
@@ -33,7 +34,7 @@ function mapAgent(row:Record<string,unknown>):InvestigationAgent{
     instructions:String(row.instructions??""),
     identity:String(row.identity_text||AGENT_IDENTITY),
     method:String(row.method_text||AGENT_METHOD),
-    guardrails:String(row.id)===GENERAL_CHAT_AGENT_ID&&storedGuardrails===GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS
+    guardrails:String(row.id)===GENERAL_CHAT_AGENT_ID&&[GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS,GENERAL_CHAT_AGENT_PREVIOUS_GUARDRAILS].includes(storedGuardrails)
       ?GENERAL_CHAT_AGENT_GUARDRAILS
       :storedGuardrails,
     isDefault:Boolean(row.is_default),

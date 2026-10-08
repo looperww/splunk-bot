@@ -30,6 +30,25 @@ test("fits the prompt to the selected model without changing the saved transcrip
   assert.match(fitted.input[0].content,/complete transcript remains saved/);
 });
 
+test("fits a long ongoing troubleshooting chat to the conservative unknown-model window",()=>{
+  const messages=Array.from({length:36},(_,index)=>({
+    role:index%2===0?"user":"assistant",
+    content:`Prior troubleshooting detail ${index}: ${"service response and investigation context ".repeat(360)}`,
+  }));
+  messages.push({role:"user",content:"Test the Splunk API connection only."});
+  const input=[
+    {role:"developer",content:"Use read-only app diagnostics and preserve the user's latest objective."},
+    {role:"developer",content:"Current investigation context: "+"recent bounded search summary ".repeat(600)},
+    ...messages,
+  ];
+  const fitted=fitModelRequest(input,[],"gpt-6-luna");
+
+  assert.ok(fitted.omittedMessages>0);
+  assert.equal(fitted.input.at(-1).content,"Test the Splunk API connection only.");
+  assert.ok(fitted.inputTokens+fitted.maxOutputTokens<fitted.contextWindowTokens);
+  assert.equal(input.length,messages.length+2);
+});
+
 test("compacts oversized search results while keeping valid tool output",()=>{
   const toolOutput={
     type:"function_call_output",

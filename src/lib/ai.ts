@@ -444,20 +444,18 @@ export async function respondToGeneralChat(
   agent:InvestigationAgent,
   options?:InvestigationAiOptions,
   record?:InvestigationRecord,
-  storedToolContext:unknown[]=[],
-):Promise<{message:string;aiContext:unknown[];searches:SearchAudit[];toolCalls:number;toolRounds:number}>{
+):Promise<{message:string;searches:SearchAudit[];toolCalls:number;toolRounds:number}>{
   const ai=await getAiRuntimeSettings();
   if(ai.provider!=="openai"||!ai.apiKey){
     throw new Error("General Chat requires an OpenAI API key. Configure the OpenAI provider in Settings first.");
   }
+  const generalToolNames=["query_app_database","search_app_documentation","search_app_source","test_splunk_connection","search_splunk"];
   const context=record?generalChatInvestigationContext(record):"";
   const conversationInput:unknown[]=[
     {role:"developer",content:buildGeneralChatPrompt(agent)},
     ...(context?[{role:"developer",content:context}]:[]),
-    ...storedToolContext.map(redactSensitiveData),
     ...messages.map((message)=>({role:message.role,content:String(redactSensitiveData(message.content))})),
   ];
-  const aiContext:unknown[]=[];
   const searches:SearchAudit[]=[];
   const MAX_TOOL_CALLS_PER_TURN=20;
   const MAX_TOOL_ROUNDS_PER_TURN=8;
@@ -477,7 +475,7 @@ export async function respondToGeneralChat(
   while(true){
     const calls=(response.output??[]).filter((item)=>
       item.type==="function_call"&&
-      ["query_app_database","search_app_documentation","search_app_source","search_splunk"].includes(String(item.name)),
+      generalToolNames.includes(String(item.name)),
     );
     if(!calls.length) break;
 
@@ -508,7 +506,14 @@ export async function respondToGeneralChat(
         toolOutput=serializeGeneralToolOutput(execution.output);
         if(execution.search) searches.push(execution.search);
       }catch(error){
-        toolOutput=serializeGeneralToolOutput({
+        toolOutput=serializeGeneralToolOutput(error instanceof SplunkSearchError?{
+          error:error.message,
+          category:error.category,
+          status:error.status,
+          diagnostic:error.diagnostic,
+          recoveryNotes:error.recoveryNotes,
+          guidance:"Use the category and status to distinguish connectivity, authentication, authorization, endpoint, timeout, and query failures. Do not repeat an unchanged request.",
+        }:{
           error:error instanceof Error?error.message:"The app tool failed.",
           guidance:"Use this error as diagnostic output. Do not repeat an unchanged request; explain access or configuration problems to the user.",
         });
@@ -518,7 +523,6 @@ export async function respondToGeneralChat(
 
     const replayedOutput=replayResponseOutput(response.output??[]);
     conversationInput.push(...replayedOutput,...outputs);
-    aiContext.push(...replayedOutput,...outputs);
     if(toolRounds>=MAX_TOOL_ROUNDS_PER_TURN) limitReached=true;
     response=await callAI(
       ai.apiKey,
@@ -537,7 +541,7 @@ export async function respondToGeneralChat(
   if(limitReached){
     message+="\n\nI reached this reply's safety limit for app and Splunk tool calls. Tell me to continue if you want me to run more checks.";
   }
-  return {message,aiContext,searches,toolCalls,toolRounds};
+  return {message,searches,toolCalls,toolRounds};
 }
 
 function scopeFromUnknown(value:unknown):InvestigationScope{
