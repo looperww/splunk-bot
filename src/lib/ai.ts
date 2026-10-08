@@ -19,6 +19,7 @@ import {
   buildAgentPrompt,
   isAggregateSearch,
   normalizeSearchKey,
+  resolveAgentSearchBudget,
 } from "@/lib/agent";
 import type {
   ChatMessage,
@@ -550,18 +551,19 @@ export async function investigate(
   conversationState?:InvestigationConversationState,
 ){
   const ai=await getAiRuntimeSettings();
+  const searchBudget=resolveAgentSearchBudget(ai.maxSearchesPerTurn);
   if(!connectionId){
     throw new Error("A Splunk connection is required before starting an investigation.");
   }
   if(!ai.apiKey||ai.provider==="mock"){
-    return investigateLocally(eventContext,scope,connectionId,incidentContext);
+    return investigateLocally(eventContext,scope,connectionId,incidentContext,searchBudget.maxSearchesPerTurn);
   }
 
   const skills=await selectDatabaseSkills(scope,4);
   const knowledge=await getSplunkKnowledge(connectionId);
   const learnings=await listLearnings({connectionId,status:"active",limit:50});
   const developerPrompt=[
-    buildAgentPrompt(scope,skills,eventContext,agent,incidentContext),
+    buildAgentPrompt(scope,skills,eventContext,agent,incidentContext,searchBudget),
     buildKnowledgePrompt(knowledge),
     buildLearningPrompt(learnings),
     "CONVERSATION CONTINUITY\nUse the full supplied chat transcript and saved investigation state. Refer back to earlier analyst answers and conclusions, do not restart the investigation or repeat already answered questions, and use prior searches/evidence before requesting new searches. If the analyst changes direction, explain how that affects the saved scope.",
@@ -601,9 +603,9 @@ export async function investigate(
   let finalizationError="";
 
   while(
-    searchCount<AGENT_CONFIG.maxSearchesPerTurn &&
-    searchAttempts<AGENT_CONFIG.maxSearchAttemptsPerTurn &&
-    toolRounds<AGENT_CONFIG.maxToolRounds
+    searchCount<searchBudget.maxSearchesPerTurn &&
+    searchAttempts<searchBudget.maxSearchAttemptsPerTurn &&
+    toolRounds<searchBudget.maxToolRounds
   ){
     const calls=(response.output??[]).filter(
       (item)=>item.type==="function_call"&&item.name==="search_splunk",
@@ -616,15 +618,15 @@ export async function investigate(
 
     for(const call of calls){
       if(
-        searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn||
-        searchCount>=AGENT_CONFIG.maxSearchesPerTurn
+        searchAttempts>=searchBudget.maxSearchAttemptsPerTurn||
+        searchCount>=searchBudget.maxSearchesPerTurn
       ){
         if(call.call_id){
           outputs.push({
             type:"function_call_output",
             call_id:call.call_id,
             output:JSON.stringify({
-              error:searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn
+              error:searchAttempts>=searchBudget.maxSearchAttemptsPerTurn
                 ?"The search-attempt limit for this turn has been reached. Stop searching and summarize the evidence collected so far."
                 :"The successful-search budget for this turn has been reached. Stop searching and summarize the evidence collected so far.",
             }),
@@ -742,9 +744,9 @@ export async function investigate(
 
   let finalMessage=extractText(response);
   const reachedLimit=
-    searchCount>=AGENT_CONFIG.maxSearchesPerTurn||
-    searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn||
-    toolRounds>=AGENT_CONFIG.maxToolRounds;
+    searchCount>=searchBudget.maxSearchesPerTurn||
+    searchAttempts>=searchBudget.maxSearchAttemptsPerTurn||
+    toolRounds>=searchBudget.maxToolRounds;
 
   if(!finalMessage&&reachedLimit){
     try{
@@ -774,9 +776,9 @@ export async function investigate(
   finalMessage=finalMessage||
     [
       "The investigation ended without a final report.",
-      searchCount>=AGENT_CONFIG.maxSearchesPerTurn
+      searchCount>=searchBudget.maxSearchesPerTurn
         ?"The successful-search budget was exhausted."
-        :searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn
+        :searchAttempts>=searchBudget.maxSearchAttemptsPerTurn
           ?"The search-attempt limit was reached."
         :"No additional search was requested.",
     ].join(" ");
@@ -787,8 +789,8 @@ export async function investigate(
       .slice(0,2)
       .map((error)=>error.slice(0,320));
     finalMessage+="\n\n### Splunk search status\n"+
-      `Completed searches: ${searchCount}/${AGENT_CONFIG.maxSearchesPerTurn}. `+
-      `Attempts: ${searchAttempts}/${AGENT_CONFIG.maxSearchAttemptsPerTurn}. `+
+      `Completed searches: ${searchCount}/${searchBudget.maxSearchesPerTurn}. `+
+      `Attempts: ${searchAttempts}/${searchBudget.maxSearchAttemptsPerTurn}. `+
       `${searchErrors.length} attempt(s) failed and did not consume the completed-search budget.`+
       (uniqueErrors.length?"\n\n"+uniqueErrors.map((error)=>"- "+error).join("\n"):"");
   }
@@ -803,9 +805,9 @@ export async function investigate(
     budget:{
       searchesUsed:searchCount,
       searchAttempts,
-      searchLimit:AGENT_CONFIG.maxSearchesPerTurn,
+      searchLimit:searchBudget.maxSearchesPerTurn,
       toolRounds,
-      toolRoundLimit:AGENT_CONFIG.maxToolRounds,
+      toolRoundLimit:searchBudget.maxToolRounds,
     },
   };
 }

@@ -6,6 +6,7 @@ import type { AiModel } from "@/lib/ai-settings";
 type AiSettings={
   provider:"mock"|"openai";
   model:string;
+  maxSearchesPerTurn:number;
   apiKeyConfigured:boolean;
   apiKeyLast4:string;
 };
@@ -14,6 +15,7 @@ export default function AiSettingsPanel(){
   const [settings,setSettings]=useState<AiSettings|null>(null);
   const [provider,setProvider]=useState<"mock"|"openai">("mock");
   const [model,setModel]=useState("gpt-5.6-luna");
+  const [maxSearchesPerTurn,setMaxSearchesPerTurn]=useState(6);
   const [apiKey,setApiKey]=useState("");
   const [models,setModels]=useState<AiModel[]>([]);
   const [busy,setBusy]=useState(false);
@@ -30,6 +32,7 @@ export default function AiSettingsPanel(){
         setSettings(data.settings);
         setProvider(data.settings.provider);
         setModel(data.settings.model);
+        setMaxSearchesPerTurn(data.settings.maxSearchesPerTurn);
       })
       .catch((reason)=>setError(reason instanceof Error?reason.message:"Failed to load AI settings."));
   },[]);
@@ -42,13 +45,14 @@ export default function AiSettingsPanel(){
       const response=await fetch("/api/settings/ai",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({provider,model,apiKey:apiKey||undefined,clearApiKey}),
+        body:JSON.stringify({provider,model,maxSearchesPerTurn,apiKey:apiKey||undefined,clearApiKey}),
       });
       const data=await response.json() as {settings?:AiSettings;error?:string};
       if(!response.ok||!data.settings) throw new Error(data.error??"Failed to save AI settings.");
       setSettings(data.settings);
+      setMaxSearchesPerTurn(data.settings.maxSearchesPerTurn);
       setApiKey("");
-      setStatus(clearApiKey?"AI API key removed.":"AI settings saved securely.");
+      setStatus(clearApiKey?"AI API key removed.":"AI and investigation chat settings saved.");
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to save AI settings.");
     }finally{setBusy(false);}
@@ -105,12 +109,13 @@ export default function AiSettingsPanel(){
   }
 
   const modelIsListed=models.some((item)=>item.id===model);
+  const validSearchLimit=Number.isInteger(maxSearchesPerTurn)&&maxSearchesPerTurn>=1&&maxSearchesPerTurn<=12;
 
   return <section className="panel settings-panel">
     <div className="panel-heading">
       <div>
         <div className="eyebrow">AI PROVIDER</div>
-        <h2>Model & API key</h2>
+        <h2>Model, API key & chat search limit</h2>
       </div>
       <span className="read-only">KEY ENCRYPTED</span>
     </div>
@@ -144,8 +149,30 @@ export default function AiSettingsPanel(){
       </label>
     </div>
 
+    <div className="chat-budget-setting">
+      <div>
+        <span className="label">INVESTIGATION CHAT</span>
+        <strong>Search limit per AI reply</strong>
+        <p>Set how many successful Splunk searches the AI may complete in one reply. Failed searches are tracked separately and do not use this limit.</p>
+      </div>
+      <label>
+        <span className="label">Successful searches per reply</span>
+        <input
+          type="number"
+          min={1}
+          max={12}
+          step={1}
+          value={maxSearchesPerTurn}
+          onChange={(event)=>setMaxSearchesPerTurn(Number(event.target.value))}
+          aria-invalid={!validSearchLimit}
+          aria-describedby="chat-search-limit-help"
+        />
+        <small id="chat-search-limit-help">Choose a whole number from 1 to 12. Failed attempts remain separately capped; no chat can search without limit.</small>
+      </label>
+    </div>
+
     <div className="connection-actions ai-settings-actions">
-      <button className="primary-button" disabled={busy||testing||fetchingModels} onClick={()=>void save(false)}>
+      <button className="primary-button" disabled={busy||testing||fetchingModels||!validSearchLimit} onClick={()=>void save(false)}>
         {busy?"Saving…":"Save AI settings"}
       </button>
       <button className="secondary-button" disabled={busy||testing||fetchingModels} onClick={()=>void testApiKey()}>
@@ -155,7 +182,7 @@ export default function AiSettingsPanel(){
         {fetchingModels?"Fetching models…":"Fetch models"}
       </button>
       {settings?.apiKeyConfigured&&
-        <button className="secondary-button" disabled={busy||testing||fetchingModels} onClick={()=>void save(true)}>
+        <button className="secondary-button" disabled={busy||testing||fetchingModels||!validSearchLimit} onClick={()=>void save(true)}>
           Remove API key
         </button>}
     </div>

@@ -1,7 +1,7 @@
 import { searchSplunk } from "@/lib/splunk";
 import { selectDatabaseSkills } from "@/lib/skills";
 import { getSplunkKnowledge } from "@/lib/splunk-knowledge";
-import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey } from "@/lib/agent";
+import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey, resolveAgentSearchBudget } from "@/lib/agent";
 import type { InvestigationScope } from "@/lib/investigation";
 import type { IncidentContext } from "@/lib/types";
 
@@ -133,7 +133,9 @@ export async function investigateLocally(
   scope:InvestigationScope,
   connectionId:string,
   incidentContext?:IncidentContext,
+  maxSearchesPerTurn:number=AGENT_CONFIG.maxSearchesPerTurn,
 ):Promise<LocalInvestigationResult>{
+  const searchBudget=resolveAgentSearchBudget(maxSearchesPerTurn);
   const knowledge=await getSplunkKnowledge(connectionId);
 
   const skills=await selectDatabaseSkills(scope,4);
@@ -149,7 +151,7 @@ export async function investigateLocally(
       },
       searches:[],
       skills:skills.map((skill)=>skill.name),
-      budget:{searchesUsed:0,searchAttempts:0,searchLimit:AGENT_CONFIG.maxSearchesPerTurn,toolRounds:0,toolRoundLimit:AGENT_CONFIG.maxToolRounds},
+      budget:{searchesUsed:0,searchAttempts:0,searchLimit:searchBudget.maxSearchesPerTurn,toolRounds:0,toolRoundLimit:searchBudget.maxToolRounds},
     };
   }
 
@@ -159,7 +161,7 @@ export async function investigateLocally(
   let toolRounds=0;
 
   for(const index of indexes){
-    if(searchCount>=AGENT_CONFIG.maxSearchesPerTurn) break;
+    if(searchCount>=searchBudget.maxSearchesPerTurn||toolRounds>=searchBudget.maxToolRounds) break;
     toolRounds++;
 
     const query="| tstats count where index="+quote(index)+" by sourcetype | sort - count | head 20";
@@ -197,7 +199,7 @@ export async function investigateLocally(
   const target=targetFilter(eventContext,scope,incidentContext);
   const targetIndex=indexes[0];
 
-  if(target&&targetIndex&&searchCount<AGENT_CONFIG.maxSearchesPerTurn){
+  if(target&&targetIndex&&searchCount<searchBudget.maxSearchesPerTurn&&toolRounds<searchBudget.maxToolRounds){
     toolRounds++;
     const query="search index="+quote(targetIndex)+" "+target+" | stats count by sourcetype";
     const key=normalizeSearchKey(query,scope.earliest,scope.latest);
@@ -267,9 +269,9 @@ export async function investigateLocally(
     budget:{
       searchesUsed:searchCount,
       searchAttempts:searchCount,
-      searchLimit:AGENT_CONFIG.maxSearchesPerTurn,
+      searchLimit:searchBudget.maxSearchesPerTurn,
       toolRounds,
-      toolRoundLimit:AGENT_CONFIG.maxToolRounds,
+      toolRoundLimit:searchBudget.maxToolRounds,
     },
   };
 }

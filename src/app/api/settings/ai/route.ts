@@ -21,6 +21,7 @@ export async function POST(request:NextRequest){
     const body=await request.json() as {
       provider?:string;
       model?:string;
+      maxSearchesPerTurn?:number;
       apiKey?:string;
       clearApiKey?:boolean;
     };
@@ -32,6 +33,7 @@ export async function POST(request:NextRequest){
     const settings=await saveAiSettings({
       provider,
       model:String(body.model??""),
+      maxSearchesPerTurn:body.maxSearchesPerTurn,
       apiKey:body.apiKey?String(body.apiKey):undefined,
       clearApiKey:Boolean(body.clearApiKey),
     });

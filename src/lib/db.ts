@@ -175,6 +175,7 @@ async function createSchema():Promise<void>{
         id TEXT PRIMARY KEY,
         provider TEXT NOT NULL DEFAULT 'mock',
         model TEXT NOT NULL DEFAULT 'gpt-5.6-luna',
+        max_searches_per_turn INTEGER NOT NULL DEFAULT 6,
         api_key_ciphertext TEXT,
         api_key_iv TEXT,
         api_key_tag TEXT,
@@ -182,6 +183,9 @@ async function createSchema():Promise<void>{
         encryption_key_version INTEGER,
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      ALTER TABLE ai_settings
+        ADD COLUMN IF NOT EXISTS max_searches_per_turn INTEGER NOT NULL DEFAULT 6;
 
       CREATE TABLE IF NOT EXISTS abuse_ipdb_settings (
         id TEXT PRIMARY KEY,
