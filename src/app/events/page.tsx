@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppState } from "@/components/app-shell";
 import DetailFields from "@/components/detail-fields";
-import type { AmeEvent } from "@/lib/types";
+import type { AmeEvent, InvestigationClosureNotification } from "@/lib/types";
 import { formatTimestamp, timestampMillis } from "@/lib/time";
 
 type EventSort="created-desc"|"created-asc"|"urgency-desc"|"urgency-asc";
@@ -12,6 +12,21 @@ type EventFetchInterval="manual"|"5"|"10"|"15"|"30"|"60";
 
 const EVENT_FETCH_INTERVAL_KEY="splunk-bot-event-fetch-interval";
 const EVENT_FETCH_INTERVALS:EventFetchInterval[]=["manual","5","10","15","30","60"];
+
+async function requestEventHistoryReview(connectionId:string,eventIds:string[]):Promise<InvestigationClosureNotification[]>{
+  try{
+    const response=await fetch("/api/ame/events/similarity",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({connectionId,eventIds}),
+    });
+    if(!response.ok) return [];
+    const data=await response.json() as {notifications?:InvestigationClosureNotification[]};
+    return data.notifications??[];
+  }catch{
+    return [];
+  }
+}
 
 function urgencyRank(value:string|undefined):number|null{
   if(!value) return null;
@@ -51,7 +66,7 @@ function eventUrgencyLabel(event:AmeEvent):string|undefined{
 
 export default function EventsPage(){
   const router=useRouter();
-  const {selectedConnection,selectedEvent,setSelectedEvent}=useAppState();
+  const {selectedConnection,selectedEvent,setSelectedEvent,addNotification}=useAppState();
   const [events,setEvents]=useState<AmeEvent[]>([]);
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
@@ -89,12 +104,16 @@ export default function EventsPage(){
         error?:string;
         cached?:boolean;
         cachedAt?:string|null;
+        notifications?:InvestigationClosureNotification[];
       };
       if(!response.ok) throw new Error(data.error??"Failed to load AME events.");
       if(requestId!==requestSequence.current) return;
       setEvents(data.events??[]);
       setCached(Boolean(data.cached));
       setCachedAt(data.cachedAt??null);
+      for(const notification of data.notifications??[]) addNotification(notification);
+      void requestEventHistoryReview(connectionId,(data.events??[]).map((event)=>event.id))
+        .then((items)=>items.forEach(addNotification));
       if(!background) setExpandedId(null);
     }catch(reason){
       if(requestId===requestSequence.current){
@@ -106,7 +125,7 @@ export default function EventsPage(){
         setRefreshing(false);
       }
     }
-  },[selectedConnection]);
+  },[addNotification,selectedConnection]);
 
   function changeFetchInterval(value:EventFetchInterval){
     setFetchInterval(value);

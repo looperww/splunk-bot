@@ -358,6 +358,20 @@ async function createSchema():Promise<void>{
       CREATE INDEX IF NOT EXISTS ame_event_local_closures_closed_at_idx
         ON ame_event_local_closures(connection_id, closed_at DESC);
 
+      CREATE TABLE IF NOT EXISTS ame_event_similarity_reviews (
+        connection_id TEXT NOT NULL REFERENCES splunk_connections(id) ON DELETE CASCADE,
+        event_id TEXT NOT NULL,
+        event_fingerprint TEXT NOT NULL,
+        history_revision TEXT NOT NULL,
+        notifications JSONB NOT NULL DEFAULT '[]'::jsonb,
+        warning TEXT,
+        checked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY(connection_id, event_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS ame_event_similarity_reviews_checked_idx
+        ON ame_event_similarity_reviews(connection_id, checked_at DESC);
+
       INSERT INTO ame_event_local_closures(connection_id,event_id,classification,reason,closed_at)
       SELECT connection_id,source_event_id,closure_classification,COALESCE(closure_reason,''),updated_at
         FROM (

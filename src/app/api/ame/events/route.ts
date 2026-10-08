@@ -6,6 +6,7 @@ import {
   getCachedAmeEvents,
   replaceCachedAmeEvents,
 } from "@/lib/ame-event-cache";
+import { getPendingEventSimilarityNotifications } from "@/lib/event-similarity";
 import { requireApiAuth } from "@/lib/auth";
 
 const demoEvents=[
@@ -64,30 +65,36 @@ export async function GET(request:NextRequest){
       if(eventId){
         const cachedEvent=await getCachedAmeEvent(connectionId,eventId);
         if(cachedEvent.event){
+          const notifications=await getPendingEventSimilarityNotifications(connectionId);
           return NextResponse.json({
             events:[cachedEvent.event],
             demo:false,
             cached:true,
             cachedAt:cachedEvent.cachedAt,
+            notifications,
           });
         }
         const cached=await getCachedAmeEvents(connectionId);
         if(cached.events.length){
+          const notifications=await getPendingEventSimilarityNotifications(connectionId);
           return NextResponse.json({
             events:[],
             demo:false,
             cached:true,
             cachedAt:cached.cachedAt,
+            notifications,
           });
         }
       }
       const cached=await getCachedAmeEvents(connectionId);
       if(cached.events.length){
+        const notifications=await getPendingEventSimilarityNotifications(connectionId);
         return NextResponse.json({
           events:cached.events,
           demo:false,
           cached:true,
           cachedAt:cached.cachedAt,
+          notifications,
         });
       }
     }
@@ -97,11 +104,13 @@ export async function GET(request:NextRequest){
     const events=eventId
       ?saved.events.filter((event)=>event.id===eventId)
       :saved.events;
+    const notifications=await getPendingEventSimilarityNotifications(connectionId);
     return NextResponse.json({
       events,
       demo:false,
       cached:false,
       cachedAt:saved.cachedAt,
+      notifications,
     });
   }catch(error){
     return NextResponse.json(

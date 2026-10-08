@@ -1,6 +1,7 @@
 import { listConnections } from "@/lib/connections";
 import { withDb } from "@/lib/db";
 import { replaceCachedAmeEvents } from "@/lib/ame-event-cache";
+import { reviewFetchedAmeEvents } from "@/lib/event-similarity";
 import { getAmeEvents } from "@/lib/splunk";
 
 const REFRESH_INTERVAL_MS=60*60*1000;
@@ -43,6 +44,18 @@ export async function refreshAmeEventCache():Promise<void>{
       const result=await refreshConnection(connection.id);
       if(result==="refreshed"){
         console.info(`[ame-event-refresh] Refreshed cached events for connection ${connection.name} (${connection.id}).`);
+        try{
+          const similarity=await reviewFetchedAmeEvents(connection.id,undefined,50);
+          if(similarity.notifications.length){
+            console.info(`[ame-event-refresh] Found ${similarity.notifications.reduce((count,item)=>count+(item.eventMatches?.length??0),0)} open event(s) with a similar closed decision for ${connection.name}.`);
+          }
+          if(similarity.warning){
+            console.warn(`[ame-event-refresh] Similarity review warning for ${connection.name}: ${similarity.warning}`);
+          }
+        }catch(error){
+          const message=error instanceof Error?error.message:String(error);
+          console.error(`[ame-event-refresh] Similarity review failed for ${connection.name} (${connection.id}): ${message}`);
+        }
       }
     }catch(error){
       const message=error instanceof Error?error.message:String(error);
