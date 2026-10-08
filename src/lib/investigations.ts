@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ensureSchema, query } from "@/lib/db";
-import { compareAlertEvents, eventMatchFingerprint, eventSourceIp } from "@/lib/event-matching";
+import { compareAlertEvents, eventMatchFingerprint, eventSimilarityHighlights, eventSourceIp } from "@/lib/event-matching";
 import type {
   AgentBudget,
   AbuseIpdbEnrichment,
@@ -125,6 +125,10 @@ export async function findMatchingOpenInvestigations(
       sourceEventId:row.source_event_id==null?null:String(row.source_event_id),
       createdAt:new Date(String(row.created_at)).toISOString(),
       updatedAt:new Date(String(row.updated_at)).toISOString(),
+      similarityHighlights:eventSimilarityHighlights(
+        investigation.eventContext,
+        recordValue(row.event_context),
+      ),
     }));
 }
 

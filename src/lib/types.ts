@@ -184,6 +184,12 @@ export type InvestigationMatch={
   sourceEventId:string|null;
   createdAt:string;
   updatedAt:string;
+  similarityHighlights?:SimilarityHighlight[];
+};
+
+export type SimilarityHighlight={
+  label:string;
+  value:string;
 };
 
 export type AmeEventClosureMatch={
@@ -197,6 +203,7 @@ export type AmeEventClosureMatch={
   canClose?:boolean;
   sourceIp?:string|null;
   destinationIp?:string|null;
+  similarityHighlights?:SimilarityHighlight[];
 };
 
 export type ClosedInvestigationMatch=InvestigationMatch & {
