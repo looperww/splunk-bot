@@ -1,4 +1,5 @@
 import type { AmeEvent, ChatMessage, IncidentContext } from "@/lib/types";
+import { normalizeSplunkTimeRange } from "@/lib/splunk-time";
 
 export type InvestigationScope = {
   objective: string;
@@ -37,13 +38,20 @@ export function normalizePlan(
   eventContext?: Record<string, unknown>,
 ): InvestigationPlan {
   const scope = { ...plan.scope };
+  const timeRange=normalizeSplunkTimeRange(scope.earliest,scope.latest);
+  if(timeRange){
+    scope.earliest=timeRange.earliest;
+    scope.latest=timeRange.latest;
+  }else{
+    scope.earliest="";
+    scope.latest="";
+  }
 
   if (
     plan.status === "ready" &&
     (!scope.objective.trim() ||
       !hasUsableTarget(eventContext, scope.target) ||
-      !scope.earliest.trim() ||
-      !scope.latest.trim())
+      !timeRange)
   ) {
     return {
       status: "clarification_needed",

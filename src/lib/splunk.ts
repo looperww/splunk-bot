@@ -1,6 +1,7 @@
 import { getDefaultConnection, getConnectionCredentials } from "@/lib/connections";
 import type { AmeEvent, SplunkAlert } from "@/lib/types";
 import { normalizeTimestamp } from "@/lib/time";
+import { normalizeSplunkTimeRange } from "@/lib/splunk-time";
 
 const MAX_RESULTS=200;
 const REQUEST_TIMEOUT_MS=30000;
@@ -278,9 +279,12 @@ export async function searchSplunk(
     throw new Error("Invalid Splunk result limit.");
   }
 
-  if(!earliest.trim()||!latest.trim()){
-    throw new Error("Splunk searches require an explicit time window.");
+  const timeRange=normalizeSplunkTimeRange(earliest,latest);
+  if(!timeRange){
+    throw new Error("Splunk search time bounds must be valid ISO timestamps, epoch timestamps, or relative time values, with the earliest time before the latest time.");
   }
+  earliest=timeRange.earliest;
+  latest=timeRange.latest;
 
   const connection=await resolveConnection(connectionId);
   const body=new URLSearchParams({
