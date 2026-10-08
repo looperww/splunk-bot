@@ -1,7 +1,8 @@
 import { getDefaultConnection, getConnectionCredentials } from "@/lib/connections";
 import type { AmeEvent, SplunkAlert } from "@/lib/types";
 import { normalizeTimestamp } from "@/lib/time";
-import { normalizeSplunkTimeRange } from "@/lib/splunk-time";
+import { epochFallbackTimeRange, normalizeSplunkTimeRange } from "@/lib/splunk-time";
+import { SplunkSearchError } from "@/lib/splunk-recovery";
 
 const MAX_RESULTS=200;
 const REQUEST_TIMEOUT_MS=30000;
@@ -32,27 +33,17 @@ async function splunkFetch(
   path:string,
   init?:RequestInit,
 ):Promise<Response>{
-  const controller=new AbortController();
-  const timeout=setTimeout(
-    ()=>controller.abort(),
-    REQUEST_TIMEOUT_MS,
-  );
+  const url=new URL(path,connection.baseUrl);
+  const headers=new Headers(init?.headers);
+  headers.set("Authorization","Bearer "+connection.token);
+  headers.set("Accept","application/json");
 
-  try{
-    const url=new URL(path,connection.baseUrl);
-    const headers=new Headers(init?.headers);
-    headers.set("Authorization","Bearer "+connection.token);
-    headers.set("Accept","application/json");
-
-    return await fetch(url,{
-      ...init,
-      headers,
-      cache:"no-store",
-      signal:controller.signal,
-    });
-  }finally{
-    clearTimeout(timeout);
-  }
+  return await fetch(url,{
+    ...init,
+    headers,
+    cache:"no-store",
+    signal:AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
 }
 
 async function readJson(response:Response,operation:string):Promise<unknown>{
@@ -266,6 +257,32 @@ function parseExport(
   return results;
 }
 
+function fatalExportMessage(text:string):string|null{
+  for(const line of text.split(/\r?\n/)){
+    const value=line.trim();
+    if(!value) continue;
+    try{
+      const parsed=JSON.parse(value) as Record<string,unknown>;
+      if(!Array.isArray(parsed.messages)) continue;
+      const fatal=parsed.messages.filter(
+        (item)=>item&&typeof item==="object"&&
+          /^(?:ERROR|FATAL)$/i.test(String((item as Record<string,unknown>).type??"")),
+      ).map((item)=>{
+        const record=item as Record<string,unknown>;
+        return String(record.text??record.message??"").trim();
+      }).filter(Boolean);
+      if(fatal.length) return fatal.join("; ");
+    }catch{
+      // Export output may contain non-JSON progress lines.
+    }
+  }
+  return null;
+}
+
+function pauseBeforeRetry():Promise<void>{
+  return new Promise((resolve)=>setTimeout(resolve,300));
+}
+
 export async function searchSplunk(
   query:string,
   earliest="-24h",
@@ -294,34 +311,89 @@ export async function searchSplunk(
     output_mode:"json",
     preview:"false",
   });
+  let currentEarliest=timeRange.earliest;
+  let currentLatest=timeRange.latest;
+  let requestRetries=0;
+  const recoveryNotes:string[]=[];
+  let exportText="";
 
-  const response=await splunkFetch(
-    connection,
-    DEFAULT_SEARCH_PATH,
-    {
-      method:"POST",
-      headers:{"Content-Type":"application/x-www-form-urlencoded"},
-      body,
-    },
-  );
+  while(true){
+    let response:Response;
+    let text:string;
+    try{
+      response=await splunkFetch(
+        connection,
+        DEFAULT_SEARCH_PATH,
+        {
+          method:"POST",
+          headers:{"Content-Type":"application/x-www-form-urlencoded"},
+          body,
+        },
+      );
+      text=await response.text();
+    }catch(cause){
+      const failure=new SplunkSearchError({cause});
+      if(failure.recovery==="retry_request_once"&&requestRetries<1){
+        requestRetries++;
+        recoveryNotes.push("Splunk request timed out or failed temporarily; the same request was retried once.");
+        await pauseBeforeRetry();
+        continue;
+      }
+      throw new SplunkSearchError({cause},"stop",recoveryNotes);
+    }
 
-  const text=await response.text();
+    const streamMessage=response.ok?fatalExportMessage(text):null;
+    const failure=!response.ok
+      ?new SplunkSearchError({status:response.status,body:text})
+      :streamMessage
+        ?new SplunkSearchError({status:response.status,body:JSON.stringify({detail:streamMessage})})
+        :null;
 
-  if(!response.ok){
-    throw new Error(
-      "Splunk search failed ("+response.status+"): "+text.slice(0,600),
-    );
+    if(failure){
+      if(failure.recovery==="retry_time_as_epoch"&&requestRetries<1){
+        const fallback=epochFallbackTimeRange(currentEarliest,currentLatest);
+        if(fallback){
+          currentEarliest=fallback.earliest;
+          currentLatest=fallback.latest;
+          body.set("earliest_time",currentEarliest);
+          body.set("latest_time",currentLatest);
+          requestRetries++;
+          recoveryNotes.push("Splunk rejected the ISO time format; the same time window was retried once as Unix epoch seconds.");
+          continue;
+        }
+        throw new SplunkSearchError(
+          {status:response.status,body:text},
+          "stop",
+          recoveryNotes,
+        );
+      }
+      if(failure.recovery==="retry_request_once"&&requestRetries<1){
+        requestRetries++;
+        recoveryNotes.push("Splunk returned a temporary service error; the same request was retried once.");
+        await pauseBeforeRetry();
+        continue;
+      }
+      throw new SplunkSearchError(
+        {status:response.status,body:streamMessage?JSON.stringify({detail:streamMessage}):text},
+        "stop",
+        recoveryNotes,
+      );
+    }
+
+    exportText=text;
+    break;
   }
 
-  const results=parseExport(text,maxResults);
+  const results=parseExport(exportText,maxResults);
 
   return {
     searchId:crypto.randomUUID(),
     connectionId:connection.id,
     query,
-    earliest,
-    latest,
+    earliest:timeRange.earliest,
+    latest:timeRange.latest,
     results,
     truncated:results.length>=maxResults,
+    recoveryNotes,
   };
 }

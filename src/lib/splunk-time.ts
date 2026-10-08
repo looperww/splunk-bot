@@ -65,3 +65,22 @@ export function normalizeSplunkTimeRange(
 
   return {earliest,latest};
 }
+
+/** Return the same absolute interval as epoch seconds for one format-recovery retry. */
+export function epochFallbackTimeRange(
+  earliestInput:unknown,
+  latestInput:unknown,
+):{earliest:string;latest:string}|null{
+  const range=normalizeSplunkTimeRange(earliestInput,latestInput);
+  if(!range) return null;
+  const earliestMilliseconds=absoluteTimestamp(range.earliest);
+  const latestMilliseconds=absoluteTimestamp(range.latest);
+  if(earliestMilliseconds===null||latestMilliseconds===null) return null;
+  const toSeconds=(milliseconds:number)=>(
+    milliseconds/1000
+  ).toFixed(3).replace(/0+$/,"").replace(/\.$/,"");
+  return {
+    earliest:toSeconds(earliestMilliseconds),
+    latest:toSeconds(latestMilliseconds),
+  };
+}

@@ -40,6 +40,7 @@ export type SearchAudit = {
   phase:"baseline"|"pivot"|"confirmation";
   cached:boolean;
   evidencePreview?:Record<string,unknown>[];
+  recoveryNotes?:string[];
 };
 
 export type AgentBudget = {
@@ -48,6 +49,9 @@ export type AgentBudget = {
   searchLimit:number;
   toolRounds:number;
   toolRoundLimit:number;
+  recoveryAttemptsUsed?:number;
+  recoveryAttemptsLimit?:number;
+  automaticRetries?:number;
 };
 
 export type InvestigationQuestion = {

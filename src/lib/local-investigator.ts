@@ -3,29 +3,13 @@ import { selectDatabaseSkills } from "@/lib/skills";
 import { getSplunkKnowledge } from "@/lib/splunk-knowledge";
 import { AGENT_CONFIG, isAggregateSearch, normalizeSearchKey, resolveAgentSearchBudget } from "@/lib/agent";
 import type { InvestigationScope } from "@/lib/investigation";
-import type { IncidentContext } from "@/lib/types";
+import type { AgentBudget, IncidentContext, SearchAudit } from "@/lib/types";
 
 export type LocalInvestigationResult={
   message:{role:"assistant";content:string};
-  searches:Array<{
-    searchId:string;
-    query:string;
-    earliest?:string;
-    latest?:string;
-    resultCount:number;
-    truncated:boolean;
-    phase:"baseline"|"pivot"|"confirmation";
-    cached:boolean;
-    evidencePreview?:Record<string,unknown>[];
-  }>;
+  searches:SearchAudit[];
   skills:string[];
-  budget:{
-    searchesUsed:number;
-    searchAttempts:number;
-    searchLimit:number;
-    toolRounds:number;
-    toolRoundLimit:number;
-  };
+  budget:AgentBudget;
 };
 
 type Knowledge=Awaited<ReturnType<typeof getSplunkKnowledge>>;
@@ -159,6 +143,7 @@ export async function investigateLocally(
   const cache=new Map<string,Awaited<ReturnType<typeof searchSplunk>>>();
   let searchCount=0;
   let toolRounds=0;
+  let automaticRetries=0;
 
   for(const index of indexes){
     if(searchCount>=searchBudget.maxSearchesPerTurn||toolRounds>=searchBudget.maxToolRounds) break;
@@ -182,6 +167,7 @@ export async function investigateLocally(
       cached=true;
     }
 
+    automaticRetries+=result.recoveryNotes.length;
     searchCount++;
     searches.push({
       searchId:result.searchId,
@@ -193,6 +179,7 @@ export async function investigateLocally(
       phase:"baseline",
       cached,
       evidencePreview:result.results.slice(0,10),
+      recoveryNotes:result.recoveryNotes,
     });
   }
 
@@ -219,6 +206,7 @@ export async function investigateLocally(
       cached=true;
     }
 
+    automaticRetries+=result.recoveryNotes.length;
     searchCount++;
     searches.push({
       searchId:result.searchId,
@@ -230,6 +218,7 @@ export async function investigateLocally(
       phase:"pivot",
       cached,
       evidencePreview:result.results.slice(0,10),
+      recoveryNotes:result.recoveryNotes,
     });
   }
 
@@ -272,6 +261,9 @@ export async function investigateLocally(
       searchLimit:searchBudget.maxSearchesPerTurn,
       toolRounds,
       toolRoundLimit:searchBudget.maxToolRounds,
+      recoveryAttemptsUsed:0,
+      recoveryAttemptsLimit:0,
+      automaticRetries,
     },
   };
 }
