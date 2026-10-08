@@ -2,6 +2,7 @@
 
 import AiSettingsPanel from "@/components/ai-settings-panel";
 import AbuseIpdbSettingsPanel from "@/components/abuseipdb-settings-panel";
+import AppRuntimeSettingsPanel from "@/components/app-runtime-settings-panel";
 import SplunkConnectionPanel from "@/components/splunk-connection-panel";
 import { useAppState } from "@/components/app-shell";
 
@@ -13,7 +14,7 @@ export default function SettingsPage(){
       <div>
         <div className="eyebrow">CONFIGURATION</div>
         <h1>Settings</h1>
-        <p>Manage Splunk connections, AI models and chat search limits, and threat-intelligence credentials.</p>
+        <p>Manage Splunk connections and request timeouts, AI models and chat search limits, and threat-intelligence credentials.</p>
       </div>
     </header>
     <SplunkConnectionPanel
@@ -25,6 +26,7 @@ export default function SettingsPage(){
       }}
     />
     <AiSettingsPanel/>
+    <AppRuntimeSettingsPanel/>
     <AbuseIpdbSettingsPanel/>
   </main>;
 }

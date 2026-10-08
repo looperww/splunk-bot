@@ -81,6 +81,14 @@ export async function getAiRuntimeSettings():Promise<AiRuntimeSettings>{
   return {...settings,apiKey};
 }
 
+export async function hasStoredAiApiKey():Promise<boolean>{
+  await ensureSchema();
+  const rows=await query<{configured:boolean}>(
+    "SELECT api_key_ciphertext IS NOT NULL AS configured FROM ai_settings WHERE id='default' LIMIT 1",
+  );
+  return Boolean(rows[0]?.configured);
+}
+
 export async function saveAiSettings(input:{
   provider:"mock"|"openai";
   model:string;

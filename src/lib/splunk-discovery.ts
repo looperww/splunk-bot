@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { query, withDb } from "@/lib/db";
 import { getConnectionCredentials, markDiscovery, updateConnectionTest } from "@/lib/connections";
+import { getSplunkRequestTimeoutMs } from "@/lib/app-settings";
 
 export type SplunkIdentity={
   username?:string;
@@ -66,7 +67,7 @@ async function splunkRest<T=unknown>(
       Accept:"application/json",
     },
     cache:"no-store",
-    signal:AbortSignal.timeout(30000),
+    signal:AbortSignal.timeout(await getSplunkRequestTimeoutMs()),
   });
 
   const text=await response.text();
@@ -432,7 +433,7 @@ async function splunkSearchForMetadata(
     },
     body,
     cache:"no-store",
-    signal:AbortSignal.timeout(30000),
+    signal:AbortSignal.timeout(await getSplunkRequestTimeoutMs()),
   });
 
   const text=await response.text();

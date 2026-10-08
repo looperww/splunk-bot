@@ -1,7 +1,10 @@
 import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { getAbuseIpdbSettings } from "@/lib/abuseipdb";
-import { getAiSettings } from "@/lib/ai-settings";
+import { fetchOpenAiModels, getAiRuntimeSettings, getAiSettings, hasStoredAiApiKey, saveAiSettings } from "@/lib/ai-settings";
+import { getAppSettings, saveSplunkRequestTimeoutSeconds } from "@/lib/app-settings";
+import { normalizeSearchLimit } from "@/lib/agent";
+import { AGENT_EDITABLE_APP_SETTINGS, normalizeAppModelId, normalizeSplunkRequestTimeoutSeconds, type AgentEditableAppSetting } from "@/lib/settings-policy";
 import { listAgents, getAgent } from "@/lib/agents";
 import { getCachedAmeEvents } from "@/lib/ame-event-cache";
 import { getCachedSplunkAlerts } from "@/lib/splunk-alert-cache";
@@ -35,7 +38,7 @@ const documentNames=[
 const appDataTool={
   type:"function",
   name:"query_app_database",
-  description:"Read safe application data from the app's PostgreSQL database. This is read-only and does not expose passwords, sessions, API keys, or encrypted credential fields. Use overview first to learn the available datasets. Search terms are matched against returned records.",
+  description:"Read safe application data from the app's PostgreSQL database. Reads are curated and do not expose passwords, sessions, API keys, or encrypted credential fields. Use overview first to learn the available datasets. Search terms are matched against returned records.",
   strict:true,
   parameters:{
     type:"object",
@@ -122,7 +125,24 @@ const splunkSearchTool={
   },
 };
 
+const updateAppSettingTool={
+  type:"function",
+  name:"update_app_setting",
+  description:"Update one allowlisted, non-secret app setting only when the user explicitly asks to change a setting. Supported: Splunk request timeout (10-180 seconds), investigation searches per reply (1-12), and default OpenAI model (must be available to the configured key). Never change credentials, providers, account/authentication, connection details, environment settings, or other database fields. Report the previous and new values.",
+  strict:true,
+  parameters:{
+    type:"object",
+    additionalProperties:false,
+    properties:{
+      setting:{type:"string",enum:[...AGENT_EDITABLE_APP_SETTINGS]},
+      value:{type:"string",description:"The requested value. Use seconds for the timeout and a whole number for the search limit."},
+    },
+    required:["setting","value"],
+  },
+};
+
 export const GENERAL_CHAT_TOOLS=[appDataTool,appDocumentationTool,appSourceTool,splunkConnectionTestTool,splunkSearchTool];
+export const GENERAL_CHAT_TOOLS_WITH_SETTINGS=[...GENERAL_CHAT_TOOLS,updateAppSettingTool];
 
 type ToolArguments=Record<string,unknown>;
 type ToolExecution={output:unknown;search?:SearchAudit};
@@ -215,7 +235,7 @@ const datasetGuide=[
   {dataset:"saved_alerts",tables:["splunk_alert_cache"],description:"Cached Splunk saved-alert metadata."},
   {dataset:"connections",tables:["splunk_connections"],description:"Safe Splunk connection metadata only; credentials are not returned."},
   {dataset:"splunk_knowledge",tables:["splunk_indexes","splunk_sourcetypes","splunk_data_models","splunk_field_profiles","splunk_connection_roles","splunk_connection_capabilities","splunk_discovery_runs"],description:"Cached indexes, sourcetypes, data models, roles, capabilities, field profiles, and latest discovery status."},
-  {dataset:"settings",tables:["ai_settings","abuse_ipdb_settings"],description:"Safe provider/model and API-key-configured status only; actual keys are never returned."},
+  {dataset:"settings",tables:["ai_settings","abuse_ipdb_settings","app_settings"],description:"Safe provider/model, chat search limit, request timeout, and API-key-configured status only; actual keys are never returned."},
   {dataset:"incident_scenarios",tables:["incident_scenarios"],description:"Database-backed incident scenarios and their forms."},
 ];
 
@@ -230,7 +250,7 @@ async function queryAppDatabase(args:ToolArguments,investigationConnectionId:str
   if(dataset==="overview"){
     return {
       database:"PostgreSQL",
-      access:"Read-only through application-owned queries; no arbitrary SQL is executed.",
+      access:"Curated reads plus explicitly allowlisted non-secret settings updates; no arbitrary SQL is executed.",
       datasets:datasetGuide,
       excluded:"User password hashes and sessions, OpenAI/AbuseIPDB API keys, Splunk tokens, and encrypted credential material.",
     };
@@ -310,10 +330,11 @@ async function queryAppDatabase(args:ToolArguments,investigationConnectionId:str
     return {dataset,connectionId,knowledge:await getSplunkKnowledge(connectionId)};
   }
   if(dataset==="settings"){
-    const [ai,abuseIpdb]=await Promise.all([getAiSettings(),getAbuseIpdbSettings()]);
+    const [ai,abuseIpdb,app]=await Promise.all([getAiSettings(),getAbuseIpdbSettings(),getAppSettings()]);
     return {
       dataset,
       ai:{provider:ai.provider,model:ai.model,maxSearchesPerTurn:ai.maxSearchesPerTurn,apiKeyConfigured:ai.apiKeyConfigured},
+      app:{splunkRequestTimeoutSeconds:app.splunkRequestTimeoutSeconds},
       abuseIpdb:{apiKeyConfigured:abuseIpdb.apiKeyConfigured},
       credentials:"Secret values and even partial key values are not exposed to the chat tools.",
     };
@@ -469,7 +490,7 @@ async function testConfiguredSplunkConnection(preferredConnectionId:string,inves
 export async function executeGeneralChatTool(
   name:string,
   args:ToolArguments,
-  context:{connectionId:string|null},
+  context:{connectionId:string|null;requestedSettings?:AgentEditableAppSetting[]},
 ):Promise<ToolExecution>{
   if(name==="query_app_database"){
     return {output:await queryAppDatabase(args,context.connectionId)};
@@ -519,6 +540,57 @@ export async function executeGeneralChatTool(
       },
       search,
     };
+  }
+  if(name==="update_app_setting"){
+    const setting=stringArgument(args,"setting");
+    if(!context.requestedSettings?.includes(setting as AgentEditableAppSetting)){
+      throw new Error("App settings can only be changed in response to a direct user request to change a setting.");
+    }
+    const value=stringArgument(args,"value");
+    if(!AGENT_EDITABLE_APP_SETTINGS.includes(setting as (typeof AGENT_EDITABLE_APP_SETTINGS)[number])){
+      throw new Error("That setting is not available for agent updates.");
+    }
+
+    if(setting==="splunk_request_timeout_seconds"){
+      const previous=await getAppSettings();
+      const normalized=normalizeSplunkRequestTimeoutSeconds(value);
+      if(normalized===null) throw new Error("Splunk request timeout must be a whole number between 10 and 180 seconds.");
+      const updated=await saveSplunkRequestTimeoutSeconds(normalized);
+      return {output:{ok:true,setting,previousValue:previous.splunkRequestTimeoutSeconds,value:updated.splunkRequestTimeoutSeconds,unit:"seconds"}};
+    }
+
+    const previous=await getAiSettings();
+    const runtime=await getAiRuntimeSettings();
+    const databaseKeyConfigured=await hasStoredAiApiKey();
+    if(previous.provider==="openai"&&runtime.apiKey&&!databaseKeyConfigured){
+      throw new Error("Save the OpenAI API key in Settings first so the database-backed AI settings can be changed safely.");
+    }
+    if(setting==="max_searches_per_turn"){
+      const normalized=normalizeSearchLimit(value);
+      if(normalized===null) throw new Error("Investigation searches per reply must be a whole number between 1 and 12.");
+      const updated=await saveAiSettings({
+        provider:previous.provider,
+        model:previous.model,
+        maxSearchesPerTurn:normalized,
+      });
+      return {output:{ok:true,setting,previousValue:previous.maxSearchesPerTurn,value:updated.maxSearchesPerTurn,unit:"searches per reply"}};
+    }
+
+    const model=normalizeAppModelId(value);
+    if(!model) throw new Error("Enter a valid model name.");
+    if(runtime.provider!=="openai"||!runtime.apiKey){
+      throw new Error("Configure the OpenAI provider and API key in Settings before changing the default model.");
+    }
+    const availableModels=await fetchOpenAiModels(runtime.apiKey);
+    if(!availableModels.some((item)=>item.id===model)){
+      throw new Error("That model is not available to the configured OpenAI key. Fetch models in Settings and choose an available model.");
+    }
+    const updated=await saveAiSettings({
+      provider:previous.provider,
+      model,
+      maxSearchesPerTurn:previous.maxSearchesPerTurn,
+    });
+    return {output:{ok:true,setting,scope:"global default for new chats",previousValue:previous.model,value:updated.model}};
   }
   throw new Error("This general chat tool is not available.");
 }

@@ -61,6 +61,9 @@ test("general chat skips investigation scope and exposes safe app and Splunk too
   assert.match(prompt,/test_splunk_connection/);
   assert.match(prompt,/connection test is not a login investigation/);
   assert.match(prompt,/search_splunk/);
+  assert.match(prompt,/update_app_setting/);
+  assert.match(prompt,/latest user message directly requests that specific setting change/);
+  assert.match(prompt,/source code/);
   assert.match(prompt,/read-only/);
   assert.doesNotMatch(prompt,/at most \d+ Splunk searches/);
 });

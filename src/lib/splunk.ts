@@ -3,9 +3,9 @@ import type { AmeEvent, SplunkAlert } from "@/lib/types";
 import { normalizeTimestamp } from "@/lib/time";
 import { epochFallbackTimeRange, normalizeSplunkTimeRange } from "@/lib/splunk-time";
 import { SplunkSearchError } from "@/lib/splunk-recovery";
+import { getSplunkRequestTimeoutMs } from "@/lib/app-settings";
 
 const MAX_RESULTS=200;
-const REQUEST_TIMEOUT_MS=30000;
 const DEFAULT_SEARCH_PATH="/services/search/v2/jobs/export";
 const AME_EVENTS_SEARCH="| ameevents | head "+MAX_RESULTS;
 
@@ -31,6 +31,7 @@ async function resolveConnection(connectionId?:string):Promise<SplunkRuntimeConn
 async function splunkFetch(
   connection:SplunkRuntimeConnection,
   path:string,
+  timeoutMs:number,
   init?:RequestInit,
 ):Promise<Response>{
   const url=new URL(path,connection.baseUrl);
@@ -42,7 +43,7 @@ async function splunkFetch(
     ...init,
     headers,
     cache:"no-store",
-    signal:AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal:AbortSignal.timeout(timeoutMs),
   });
 }
 
@@ -132,9 +133,11 @@ export async function getSplunkAlerts(
   connectionId?:string,
 ):Promise<SplunkAlert[]>{
   const connection=await resolveConnection(connectionId);
+  const timeoutMs=await getSplunkRequestTimeoutMs();
   const response=await splunkFetch(
     connection,
     "/services/saved/searches?output_mode=json&count=0",
+    timeoutMs,
   );
   const payload=await readJson(response,"Splunk saved-alert request");
   const entries=payload&&typeof payload==="object"&&
@@ -304,6 +307,7 @@ export async function searchSplunk(
   latest=timeRange.latest;
 
   const connection=await resolveConnection(connectionId);
+  const requestTimeoutMs=await getSplunkRequestTimeoutMs();
   const body=new URLSearchParams({
     search:query,
     earliest_time:earliest,
@@ -324,6 +328,7 @@ export async function searchSplunk(
       response=await splunkFetch(
         connection,
         DEFAULT_SEARCH_PATH,
+        requestTimeoutMs,
         {
           method:"POST",
           headers:{"Content-Type":"application/x-www-form-urlencoded"},
