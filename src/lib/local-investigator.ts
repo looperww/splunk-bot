@@ -21,6 +21,7 @@ export type LocalInvestigationResult={
   skills:string[];
   budget:{
     searchesUsed:number;
+    searchAttempts:number;
     searchLimit:number;
     toolRounds:number;
     toolRoundLimit:number;
@@ -148,7 +149,7 @@ export async function investigateLocally(
       },
       searches:[],
       skills:skills.map((skill)=>skill.name),
-      budget:{searchesUsed:0,searchLimit:AGENT_CONFIG.maxSearchesPerTurn,toolRounds:0,toolRoundLimit:AGENT_CONFIG.maxToolRounds},
+      budget:{searchesUsed:0,searchAttempts:0,searchLimit:AGENT_CONFIG.maxSearchesPerTurn,toolRounds:0,toolRoundLimit:AGENT_CONFIG.maxToolRounds},
     };
   }
 
@@ -265,6 +266,7 @@ export async function investigateLocally(
     skills:skills.map((skill)=>skill.name),
     budget:{
       searchesUsed:searchCount,
+      searchAttempts:searchCount,
       searchLimit:AGENT_CONFIG.maxSearchesPerTurn,
       toolRounds,
       toolRoundLimit:AGENT_CONFIG.maxToolRounds,

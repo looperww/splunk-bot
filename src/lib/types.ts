@@ -44,6 +44,7 @@ export type SearchAudit = {
 
 export type AgentBudget = {
   searchesUsed:number;
+  searchAttempts?:number;
   searchLimit:number;
   toolRounds:number;
   toolRoundLimit:number;

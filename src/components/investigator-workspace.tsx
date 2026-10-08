@@ -1545,6 +1545,10 @@ export default function InvestigatorWorkspace(){
             </section>
             <aside className="investigation-report-column">
               <div className="panel-heading"><div><div className="eyebrow">REPORT & EVIDENCE</div><h3>Incident report</h3></div><span className="count">{activeInvestigation.searches.length}</span></div>
+              {activeInvestigation.budget?.searchAttempts!==undefined&&<div className="search-budget-status" role="status">
+                <strong>This turn · {activeInvestigation.budget.searchesUsed}/{activeInvestigation.budget.searchLimit} searches completed</strong>
+                <span>{activeInvestigation.budget.searchAttempts} attempts · {activeInvestigation.budget.toolRounds}/{activeInvestigation.budget.toolRoundLimit} tool rounds</span>
+              </div>}
               <section className="abuseipdb-card" aria-labelledby="abuseipdb-card-title">
                 <div className="abuseipdb-card-heading">
                   <div><div className="eyebrow">THREAT INTELLIGENCE</div><h4 id="abuseipdb-card-title">IP reputation</h4></div>
