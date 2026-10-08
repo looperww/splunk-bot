@@ -16,6 +16,7 @@ import { buildLearningPrompt, listLearnings } from "@/lib/learnings";
 import { describeOutboundFetchError } from "@/lib/outbound-http";
 import { eventMatchFingerprint } from "@/lib/event-matching";
 import { fitModelRequest } from "@/lib/model-context";
+import { reasoningEffortForModel } from "@/lib/reasoning-mode";
 import {
   AGENT_CONFIG,
   buildAgentPrompt,
@@ -229,10 +230,6 @@ function preserveSavedScope(
   );
 }
 
-function supportsReasoningModel(model:string):boolean{
-  return /^(gpt-5|o\d(?:-|$)|gpt-oss)/i.test(model.trim());
-}
-
 const CLARIFICATION_PROMPT=[
   "You are the intake stage of Splunk Bot, a defensive SOC investigation agent.",
   "Your only job is to establish the minimum useful investigation scope before any Splunk search is allowed.",
@@ -394,7 +391,10 @@ async function callAI(
   };
   if(previousResponseId) body.previous_response_id=previousResponseId;
   if(toolChoice) body.tool_choice=toolChoice;
-  if(options?.thinkEnabled&&supportsReasoningModel(selectedModel)) body.reasoning={effort:"medium"};
+  if(options?.thinkEnabled!==undefined){
+    const reasoningEffort=reasoningEffortForModel(selectedModel,options.thinkEnabled);
+    if(reasoningEffort) body.reasoning={effort:reasoningEffort};
+  }
 
   for(let attempt=0;attempt<2;attempt++){
     let response:Response;
