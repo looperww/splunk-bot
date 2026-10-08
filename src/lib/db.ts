@@ -9,6 +9,10 @@ import {
   GENERAL_CHAT_AGENT_GUARDRAILS,
   GENERAL_CHAT_AGENT_ID,
   GENERAL_CHAT_AGENT_IDENTITY,
+  GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION,
+  GENERAL_CHAT_AGENT_LEGACY_IDENTITY,
+  GENERAL_CHAT_AGENT_LEGACY_INSTRUCTIONS,
+  GENERAL_CHAT_AGENT_LEGACY_METHOD,
   GENERAL_CHAT_AGENT_INSTRUCTIONS,
   GENERAL_CHAT_AGENT_METHOD,
   GENERAL_CHAT_AGENT_NAME,
@@ -492,7 +496,24 @@ async function createSchema():Promise<void>{
         $general_method$${GENERAL_CHAT_AGENT_METHOD}$general_method$,
         $general_guardrails$${GENERAL_CHAT_AGENT_GUARDRAILS}$general_guardrails$,
         FALSE
-      ) ON CONFLICT(id) DO NOTHING;
+      ) ON CONFLICT(id) DO UPDATE SET
+        description=CASE
+          WHEN investigation_agents.description=$general_legacy_description$${GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION}$general_legacy_description$
+          THEN EXCLUDED.description ELSE investigation_agents.description END,
+        instructions=CASE
+          WHEN investigation_agents.instructions=$general_legacy_instructions$${GENERAL_CHAT_AGENT_LEGACY_INSTRUCTIONS}$general_legacy_instructions$
+          THEN EXCLUDED.instructions ELSE investigation_agents.instructions END,
+        identity_text=CASE
+          WHEN investigation_agents.identity_text=$general_legacy_identity$${GENERAL_CHAT_AGENT_LEGACY_IDENTITY}$general_legacy_identity$
+          THEN EXCLUDED.identity_text ELSE investigation_agents.identity_text END,
+        method_text=CASE
+          WHEN investigation_agents.method_text=$general_legacy_method$${GENERAL_CHAT_AGENT_LEGACY_METHOD}$general_legacy_method$
+          THEN EXCLUDED.method_text ELSE investigation_agents.method_text END
+      WHERE
+        investigation_agents.description=$general_legacy_description$${GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION}$general_legacy_description$
+        OR investigation_agents.instructions=$general_legacy_instructions$${GENERAL_CHAT_AGENT_LEGACY_INSTRUCTIONS}$general_legacy_instructions$
+        OR investigation_agents.identity_text=$general_legacy_identity$${GENERAL_CHAT_AGENT_LEGACY_IDENTITY}$general_legacy_identity$
+        OR investigation_agents.method_text=$general_legacy_method$${GENERAL_CHAT_AGENT_LEGACY_METHOD}$general_legacy_method$;
 
 
     `);

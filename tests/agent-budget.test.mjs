@@ -46,9 +46,15 @@ test("general chat skips investigation scope and exposes safe app and Splunk too
     identity:"General assistant.",
     method:"Diagnose collaboratively.",
     instructions:"Follow the user's issue.",
-    guardrails:"No operational tools are available.",
+    guardrails:"This chat has no operational tools. It cannot execute shell commands, browse the web, call Splunk, inspect the server, or change application or infrastructure state.",
   });
-  assert.match(prompt,/There is no Alert Manager intake/);
+  assert.match(prompt,/general-purpose AI assistant and collaborative thought partner/);
+  assert.match(prompt,/Answer questions across topics/);
+  assert.match(prompt,/For ordinary questions, answer from your knowledge/);
+  assert.match(prompt,/Use app and Splunk tools only when the question is specifically about this app/);
+  assert.match(prompt,/This limits actions, not the topics you can discuss or the advice you can give/);
+  assert.match(prompt,/must not narrow the user's allowed topics/);
+  assert.match(prompt,/do not force a tool call, Splunk search, alert intake/);
   assert.match(prompt,/query_app_database/);
   assert.match(prompt,/search_app_documentation/);
   assert.match(prompt,/search_app_source/);
