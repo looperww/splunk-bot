@@ -2,6 +2,13 @@ import { getAiRuntimeSettings } from "@/lib/ai-settings";
 import type { InvestigationAgent } from "@/lib/agents";
 import { investigateLocally } from "@/lib/local-investigator";
 import { searchSplunk } from "@/lib/splunk";
+import {
+  executeGeneralChatTool,
+  generalChatInvestigationContext,
+  GENERAL_CHAT_TOOLS,
+  redactSensitiveData,
+  serializeGeneralToolOutput,
+} from "@/lib/general-chat-tools";
 import { SplunkSearchError } from "@/lib/splunk-recovery";
 import {
   mockClarificationPlan,
@@ -436,26 +443,101 @@ export async function respondToGeneralChat(
   messages:ChatMessage[],
   agent:InvestigationAgent,
   options?:InvestigationAiOptions,
-):Promise<string>{
+  record?:InvestigationRecord,
+  storedToolContext:unknown[]=[],
+):Promise<{message:string;aiContext:unknown[];searches:SearchAudit[];toolCalls:number;toolRounds:number}>{
   const ai=await getAiRuntimeSettings();
   if(ai.provider!=="openai"||!ai.apiKey){
     throw new Error("General Chat requires an OpenAI API key. Configure the OpenAI provider in Settings first.");
   }
-  const response=await callAI(
+  const context=record?generalChatInvestigationContext(record):"";
+  const conversationInput:unknown[]=[
+    {role:"developer",content:buildGeneralChatPrompt(agent)},
+    ...(context?[{role:"developer",content:context}]:[]),
+    ...storedToolContext.map(redactSensitiveData),
+    ...messages.map((message)=>({role:message.role,content:String(redactSensitiveData(message.content))})),
+  ];
+  const aiContext:unknown[]=[];
+  const searches:SearchAudit[]=[];
+  const MAX_TOOL_CALLS_PER_TURN=20;
+  const MAX_TOOL_ROUNDS_PER_TURN=8;
+  let toolCalls=0;
+  let toolRounds=0;
+  let limitReached=false;
+  let response=await callAI(
     ai.apiKey,
     options?.model?.trim()||ai.model,
-    [
-      {role:"developer",content:buildGeneralChatPrompt(agent)},
-      ...messages.map((message)=>({role:message.role,content:message.content})),
-    ],
-    [],
+    conversationInput,
+    GENERAL_CHAT_TOOLS,
     undefined,
     undefined,
     options,
   );
-  const content=extractText(response);
-  if(!content) throw new Error("The general chat agent returned no message. Please try again.");
-  return content;
+
+  while(true){
+    const calls=(response.output??[]).filter((item)=>
+      item.type==="function_call"&&
+      ["query_app_database","search_app_documentation","search_app_source","search_splunk"].includes(String(item.name)),
+    );
+    if(!calls.length) break;
+
+    toolRounds++;
+    const outputs:unknown[]=[];
+    for(const call of calls){
+      if(!call.call_id) continue;
+      if(toolCalls>=MAX_TOOL_CALLS_PER_TURN){
+        limitReached=true;
+        outputs.push({
+          type:"function_call_output",
+          call_id:call.call_id,
+          output:JSON.stringify({error:"This reply reached the safe tool-call limit. Summarize what is known and ask the user to continue if more checks are needed."}),
+        });
+        continue;
+      }
+      toolCalls++;
+      let toolOutput:string;
+      try{
+        if(!call.arguments) throw new Error("The tool call did not include arguments.");
+        const args=JSON.parse(call.arguments) as unknown;
+        if(!args||typeof args!=="object"||Array.isArray(args)) throw new Error("The tool arguments must be a JSON object.");
+        const execution=await executeGeneralChatTool(
+          String(call.name),
+          args as Record<string,unknown>,
+          {connectionId:record?.connectionId??null},
+        );
+        toolOutput=serializeGeneralToolOutput(execution.output);
+        if(execution.search) searches.push(execution.search);
+      }catch(error){
+        toolOutput=serializeGeneralToolOutput({
+          error:error instanceof Error?error.message:"The app tool failed.",
+          guidance:"Use this error as diagnostic output. Do not repeat an unchanged request; explain access or configuration problems to the user.",
+        });
+      }
+      outputs.push({type:"function_call_output",call_id:call.call_id,output:toolOutput});
+    }
+
+    const replayedOutput=replayResponseOutput(response.output??[]);
+    conversationInput.push(...replayedOutput,...outputs);
+    aiContext.push(...replayedOutput,...outputs);
+    if(toolRounds>=MAX_TOOL_ROUNDS_PER_TURN) limitReached=true;
+    response=await callAI(
+      ai.apiKey,
+      options?.model?.trim()||ai.model,
+      conversationInput,
+      limitReached?[]:GENERAL_CHAT_TOOLS,
+      undefined,
+      limitReached?"none":undefined,
+      options,
+    );
+    if(limitReached) break;
+  }
+
+  let message=extractText(response);
+  if(!message) throw new Error("The general chat agent returned no message. Please try again.");
+  if(limitReached){
+    message+="\n\nI reached this reply's safety limit for app and Splunk tool calls. Tell me to continue if you want me to run more checks.";
+  }
+  return {message,aiContext,searches,toolCalls,toolRounds};
 }
 
 function scopeFromUnknown(value:unknown):InvestigationScope{
