@@ -17,7 +17,9 @@ ENV HOSTNAME=0.0.0.0
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/docs ./docs
 COPY --from=builder --chown=nextjs:nodejs /app/skills ./skills
+COPY --from=builder --chown=nextjs:nodejs /app/src ./src
 USER nextjs
 EXPOSE 3000
 CMD ["node","server.js"]

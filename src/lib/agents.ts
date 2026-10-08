@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { ensureSchema, query } from "@/lib/db";
 import { AGENT_GUARDRAILS, AGENT_IDENTITY, AGENT_METHOD } from "@/lib/agent";
+import {
+  GENERAL_CHAT_AGENT_GUARDRAILS,
+  GENERAL_CHAT_AGENT_DESCRIPTION,
+  GENERAL_CHAT_AGENT_ID,
+  GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION,
+  GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS,
+} from "@/lib/agent-defaults";
 
 export type InvestigationAgent={
   id:string;
@@ -15,14 +22,20 @@ export type InvestigationAgent={
 };
 
 function mapAgent(row:Record<string,unknown>):InvestigationAgent{
+  const storedDescription=String(row.description??"");
+  const storedGuardrails=String(row.guardrails_text||AGENT_GUARDRAILS);
   return {
     id:String(row.id),
     name:String(row.name),
-    description:String(row.description??""),
+    description:String(row.id)===GENERAL_CHAT_AGENT_ID&&storedDescription===GENERAL_CHAT_AGENT_LEGACY_DESCRIPTION
+      ?GENERAL_CHAT_AGENT_DESCRIPTION
+      :storedDescription,
     instructions:String(row.instructions??""),
     identity:String(row.identity_text||AGENT_IDENTITY),
     method:String(row.method_text||AGENT_METHOD),
-    guardrails:String(row.guardrails_text||AGENT_GUARDRAILS),
+    guardrails:String(row.id)===GENERAL_CHAT_AGENT_ID&&storedGuardrails===GENERAL_CHAT_AGENT_LEGACY_GUARDRAILS
+      ?GENERAL_CHAT_AGENT_GUARDRAILS
+      :storedGuardrails,
     isDefault:Boolean(row.is_default),
     createdAt:new Date(String(row.created_at)).toISOString(),
   };

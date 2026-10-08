@@ -488,6 +488,7 @@ export default function InvestigatorWorkspace(){
     title:string;
     description:string;
     agentId?:string;
+    connectionId?:string;
     sourceEventId?:string;
     incidentContext?:IncidentContext;
     eventContext?:Record<string,unknown>;
@@ -516,7 +517,7 @@ export default function InvestigatorWorkspace(){
           title:input.title,
           description:input.description,
           sourceEventId:input.sourceEventId,
-          connectionId:selectedConnection?.id,
+          connectionId:input.connectionId??selectedConnection?.id,
           agentId:selectedAgentId,
           aiModel:defaultAiModel,
           thinkEnabled:true,
@@ -564,7 +565,7 @@ export default function InvestigatorWorkspace(){
     await createInvestigation({
       kind:"chat",
       title:"General troubleshooting chat",
-      description:"An open-ended conversation for diagnosing technical issues without automatic Splunk searches.",
+      description:"An open-ended conversation for app-aware troubleshooting, database lookups, and read-only Splunk searches without an investigation-scope gate.",
       agentId:GENERAL_CHAT_AGENT_ID,
     });
   }
@@ -801,6 +802,32 @@ export default function InvestigatorWorkspace(){
     }catch{return false;}
   }
 
+  async function persistChatSettings(record:InvestigationRecord):Promise<boolean>{
+    try{
+      const response=await fetch("/api/investigations/"+encodeURIComponent(record.id),{
+        method:"PATCH",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          agentId:record.agentId,
+          aiModel:record.aiModel,
+          thinkEnabled:record.thinkEnabled,
+        }),
+      });
+      return response.ok;
+    }catch{return false;}
+  }
+
+  async function persistInvestigationMessages(record:InvestigationRecord):Promise<boolean>{
+    try{
+      const response=await fetch("/api/investigations/"+encodeURIComponent(record.id),{
+        method:"PATCH",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({messages:record.messages}),
+      });
+      return response.ok;
+    }catch{return false;}
+  }
+
   async function updateChatSettings(update:Partial<Pick<InvestigationRecord,"agentId"|"aiModel"|"thinkEnabled">>){
     if(!activeInvestigation) return;
     if(update.agentId!==undefined) setQuestions([]);
@@ -811,7 +838,7 @@ export default function InvestigatorWorkspace(){
     };
     setActiveInvestigation(updated);
     setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
-    if(!await persistInvestigation(updated)){
+    if(!await persistChatSettings(updated)){
       setError("The chat settings could not be saved. Please try again.");
     }
   }
@@ -882,11 +909,21 @@ export default function InvestigatorWorkspace(){
       budget:data.budget===undefined?record.budget:data.budget,
       updatedAt:new Date().toISOString(),
     };
-    setActiveInvestigation((current)=>current?.id===updated.id?updated:current);
+    setActiveInvestigation((current)=>current?.id===updated.id?{
+      ...updated,
+      agentId:current.agentId,
+      aiModel:current.aiModel,
+      thinkEnabled:current.thinkEnabled,
+    }:current);
     if(activeInvestigationIdRef.current===updated.id){
       setQuestions(data.questions??[]);
     }
-    setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+    setInvestigations((current)=>current.map((item)=>item.id===updated.id?{
+      ...updated,
+      agentId:item.agentId,
+      aiModel:item.aiModel,
+      thinkEnabled:item.thinkEnabled,
+    }:item));
     if(!dialogOpenRef.current||activeInvestigationIdRef.current!==updated.id){
       setNotice(`${record.title} finished in the background. Reopen it from the investigation list to view the response.`);
     }
@@ -920,13 +957,23 @@ export default function InvestigatorWorkspace(){
         ...optimistic,
         messages:[...optimistic.messages,{id:crypto.randomUUID(),role:"assistant" as const,content:message}],
       };
-      setActiveInvestigation((current)=>current?.id===updated.id?updated:current);
-      setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+      setActiveInvestigation((current)=>current?.id===updated.id?{
+        ...updated,
+        agentId:current.agentId,
+        aiModel:current.aiModel,
+        thinkEnabled:current.thinkEnabled,
+      }:current);
+      setInvestigations((current)=>current.map((item)=>item.id===updated.id?{
+        ...updated,
+        agentId:item.agentId,
+        aiModel:item.aiModel,
+        thinkEnabled:item.thinkEnabled,
+      }:item));
       setError(message);
       if(!dialogOpenRef.current||activeInvestigationIdRef.current!==updated.id){
         setNotice(`${record.title} stopped with an error in the background. Reopen it to review the error and continue troubleshooting.`);
       }
-      await persistInvestigation(updated);
+      await persistInvestigationMessages(updated);
     }finally{
       setInvestigationSending(optimistic.id,false);
     }
@@ -949,12 +996,22 @@ export default function InvestigatorWorkspace(){
     }catch(reason){
       const message="Investigation error: "+(reason instanceof Error?reason.message:"Unknown error.");
       const updated={...optimistic,messages:[...nextMessages,{id:crypto.randomUUID(),role:"assistant" as const,content:message}]};
-      setActiveInvestigation((current)=>current?.id===updated.id?updated:current);
-      setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
+      setActiveInvestigation((current)=>current?.id===updated.id?{
+        ...updated,
+        agentId:current.agentId,
+        aiModel:current.aiModel,
+        thinkEnabled:current.thinkEnabled,
+      }:current);
+      setInvestigations((current)=>current.map((item)=>item.id===updated.id?{
+        ...updated,
+        agentId:item.agentId,
+        aiModel:item.aiModel,
+        thinkEnabled:item.thinkEnabled,
+      }:item));
       if(!dialogOpenRef.current||activeInvestigationIdRef.current!==updated.id){
         setNotice(`${previous.title} stopped with an error in the background. Reopen it to review the error and continue troubleshooting.`);
       }
-      await persistInvestigation(updated);
+      await persistInvestigationMessages(updated);
     }finally{
       setInvestigationSending(optimistic.id,false);
     }
@@ -1533,10 +1590,11 @@ export default function InvestigatorWorkspace(){
                   <select
                     value={activeInvestigation.agentId??agentId}
                     onChange={(event)=>void updateChatSettings({agentId:event.target.value})}
-                    disabled={sending||deleting}
+                    disabled={deleting}
                   >
                     {agents.map((agent)=><option value={agent.id} key={agent.id}>{agent.name}</option>)}
                   </select>
+                  <small className="agent-switch-hint">Switch agents anytime; an in-progress reply finishes with its current agent.</small>
                 </label>
                 <label>
                   <span>AI model</span>
@@ -1596,7 +1654,7 @@ export default function InvestigatorWorkspace(){
                 <div><div className="eyebrow">CONVERSATION</div><h3>{activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID?"General chat":"Investigation chat"}</h3></div>
                 <span className="count">{activeInvestigation.messages.length}</span>
               </div>
-              {(activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)&&<p className="general-chat-note">General Chat uses the conversation you provide. It will not run Splunk searches or change systems.</p>}
+              {(activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)&&<p className="general-chat-note">General Chat can consult the app documentation and safe database records, and run read-only Splunk searches. It will not expose credentials or change systems.</p>}
               <div className="investigation-chat-messages">
                 {activeInvestigation.messages.map((message,index)=><div key={message.id??String(index)} className={"message "+message.role}>
                   <div className="message-role">{message.role==="assistant"?(activeChatAgent?.name??"SPLUNK BOT"):"YOU"}</div>

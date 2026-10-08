@@ -88,18 +88,23 @@ export async function POST(request:NextRequest){
     const model=record.aiModel?.trim()||ai.model;
     const aiOptions={model,thinkEnabled:record.thinkEnabled};
     if(record.kind==="chat"||agent.id===GENERAL_CHAT_AGENT_ID){
-      const content=await respondToGeneralChat(messages,agent,aiOptions);
-      const responseMessage:ChatMessage={id:randomUUID(),role:"assistant",content};
+      const storedToolContext=await getInvestigationAiContext(record.id);
+      const result=await respondToGeneralChat(messages,agent,aiOptions,record,storedToolContext);
+      const responseMessage:ChatMessage={id:randomUUID(),role:"assistant",content:result.message};
+      const updatedSearches=[...record.searches,...result.searches];
+      await appendInvestigationAiContext(record.id,result.aiContext);
       await appendInvestigationMessage(record.id,responseMessage);
-      await updateInvestigation(record.id,{budget:null});
+      await updateInvestigation(record.id,{budget:null,searches:updatedSearches});
       return NextResponse.json({
         status:"completed",
         message:responseMessage,
         questions:[],
         scope:record.scope,
-        searches:[],
-        skills:[],
+        searches:result.searches,
+        skills:record.skills,
         budget:null,
+        toolCalls:result.toolCalls,
+        toolRounds:result.toolRounds,
         agent,
       });
     }

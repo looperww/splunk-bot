@@ -39,7 +39,7 @@ test("keeps investigation follow-ups conversational and focused",()=>{
   assert.doesNotMatch(buildAgentGuardrails(),/Finish with these sections/);
 });
 
-test("general chat skips investigation scope and tool-use instructions",()=>{
+test("general chat skips investigation scope and exposes safe app and Splunk tools",()=>{
   const prompt=buildGeneralChatPrompt({
     name:"General Chat Agent",
     description:"Open-ended technical troubleshooting.",
@@ -49,6 +49,10 @@ test("general chat skips investigation scope and tool-use instructions",()=>{
     guardrails:"No operational tools are available.",
   });
   assert.match(prompt,/There is no Alert Manager intake/);
-  assert.match(prompt,/There are no tools available in this chat/);
+  assert.match(prompt,/query_app_database/);
+  assert.match(prompt,/search_app_documentation/);
+  assert.match(prompt,/search_app_source/);
+  assert.match(prompt,/search_splunk/);
+  assert.match(prompt,/read-only/);
   assert.doesNotMatch(prompt,/at most \d+ Splunk searches/);
 });
