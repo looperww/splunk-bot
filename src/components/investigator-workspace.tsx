@@ -837,7 +837,6 @@ export default function InvestigatorWorkspace(){
     const updated={
       ...record,
       messages:assistant?[...nextMessages,assistant]:nextMessages,
-      report:assistant?.content??record.report,
       scope:data.scope??record.scope,
       searches:data.searches?.length?[...record.searches,...data.searches]:record.searches,
       skills:data.skills??record.skills,
@@ -1529,22 +1528,22 @@ export default function InvestigatorWorkspace(){
                       :message.content}
                   </div>
                 </div>)}
-                {sending&&<div className="message assistant"><div className="message-role">{activeChatAgent?.name??"SPLUNK BOT"}</div><div className="message-content">Investigating…</div></div>}
+                {sending&&<div className="message assistant"><div className="message-role">{activeChatAgent?.name??"SPLUNK BOT"}</div><div className="message-content">Thinking this through…</div></div>}
               </div>
               {questions.length>0&&<div className="questions">
-                <div className="questions-title">Clarify the investigation before I search Splunk</div>
+                <div className="questions-title">One detail before I search</div>
                 {questions.map((question)=><div className="question-card" key={question.id}>
                   <div className="question-text">{question.question}</div>
                   {question.options.length>0&&<div className="option-row">{question.options.map((option)=><button key={option} className="option-button" disabled={sending} onClick={()=>void sendMessage(option)}>{option}</button>)}</div>}
                 </div>)}
               </div>}
               <div className="investigation-composer">
-                <textarea value={draft} onChange={(event)=>setDraft(event.target.value)} onKeyDown={(event)=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void sendMessage();}}} placeholder="Continue the investigation with the selected agent…" rows={4}/>
+                <textarea value={draft} onChange={(event)=>setDraft(event.target.value)} onKeyDown={(event)=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();void sendMessage();}}} placeholder="Ask a question, share an update, or work through a problem…" rows={4}/>
                 <div className="composer-footer"><span>Enter to send · Shift+Enter for a new line</span><button className="primary-button" type="button" onClick={()=>void sendMessage()} disabled={sending||!selectedConnection}>{sending?"Working…":"Send"}</button></div>
               </div>
             </section>
             <aside className="investigation-report-column">
-              <div className="panel-heading"><div><div className="eyebrow">REPORT & EVIDENCE</div><h3>Incident report</h3></div><span className="count">{activeInvestigation.searches.length}</span></div>
+              <div className="panel-heading"><div><div className="eyebrow">REPORT & EVIDENCE</div><h3>Final incident report</h3></div><span className="count">{activeInvestigation.searches.length}</span></div>
               {activeInvestigation.budget?.searchAttempts!==undefined&&<div className="search-budget-status" role="status">
                 <strong>This turn · {activeInvestigation.budget.searchesUsed}/{activeInvestigation.budget.searchLimit} searches completed</strong>
                 <span>{activeInvestigation.budget.searchAttempts} attempts · {activeInvestigation.budget.toolRounds}/{activeInvestigation.budget.toolRoundLimit} tool rounds</span>
@@ -1605,7 +1604,7 @@ export default function InvestigatorWorkspace(){
                 <div><span className="label">Focus</span><strong>{activeInvestigation.scope.focus||"—"}</strong></div>
               </div>}
               <div className="investigation-report-text">
-                <MarkdownMessage content={activeInvestigation.report||"The report will be assembled as the agent analyzes the conversation and evidence."}/>
+                <MarkdownMessage content={activeInvestigation.report||"The conversation stays here while you investigate together. Generate a formal incident report when you are ready to finalize."}/>
               </div>
               {finalEvidenceSearch&&<section className="final-evidence-query" aria-labelledby="final-evidence-query-title">
                 <div className="final-evidence-query-header">
