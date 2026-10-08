@@ -51,7 +51,9 @@ export async function POST(request:NextRequest){
       reviewOpenCachedEvents(source,requestedEventIds),
     ]);
     const allowedInvestigationIds=new Set(matches.map((match)=>match.id));
-    const allowedEventIds=new Set(eventReview.matches.filter((match)=>match.canClose!==false).map((match)=>match.eventId));
+    // The analyst explicitly selects alerts in the review dialog. AI's canClose
+    // flag is a recommendation, not an authorization gate for that choice.
+    const allowedEventIds=new Set(eventReview.matches.map((match)=>match.eventId));
     const investigationIds=requestedInvestigationIds.filter((id)=>allowedInvestigationIds.has(id));
     const eventIds=requestedEventIds.filter((id)=>allowedEventIds.has(id));
     if(investigationIds.length!==requestedInvestigationIds.length||eventIds.length!==requestedEventIds.length){
