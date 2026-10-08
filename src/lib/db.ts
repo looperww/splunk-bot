@@ -5,6 +5,13 @@ import {
   DEFAULT_AGENT_INSTRUCTIONS,
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_PLACEHOLDER,
+  GENERAL_CHAT_AGENT_DESCRIPTION,
+  GENERAL_CHAT_AGENT_GUARDRAILS,
+  GENERAL_CHAT_AGENT_ID,
+  GENERAL_CHAT_AGENT_IDENTITY,
+  GENERAL_CHAT_AGENT_INSTRUCTIONS,
+  GENERAL_CHAT_AGENT_METHOD,
+  GENERAL_CHAT_AGENT_NAME,
 } from "@/lib/agent-defaults";
 
 let pool:Pool|undefined;
@@ -225,7 +232,7 @@ async function createSchema():Promise<void>{
 
       CREATE TABLE IF NOT EXISTS investigations (
         id TEXT PRIMARY KEY,
-        kind TEXT NOT NULL CHECK (kind IN ('alert','incident')),
+        kind TEXT NOT NULL CHECK (kind IN ('alert','incident','chat')),
         title TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'ongoing' CHECK (status IN ('ongoing','closed')),
@@ -268,6 +275,13 @@ async function createSchema():Promise<void>{
 
       ALTER TABLE investigations
         ALTER COLUMN think_enabled SET DEFAULT TRUE;
+
+      ALTER TABLE investigations
+        DROP CONSTRAINT IF EXISTS investigations_kind_check;
+
+      ALTER TABLE investigations
+        ADD CONSTRAINT investigations_kind_check
+        CHECK (kind IN ('alert','incident','chat'));
 
       CREATE TABLE IF NOT EXISTS investigation_learnings (
         id TEXT PRIMARY KEY,
@@ -466,6 +480,19 @@ async function createSchema():Promise<void>{
         description=EXCLUDED.description,
         instructions=EXCLUDED.instructions
       WHERE investigation_agents.instructions=$agent_placeholder$${DEFAULT_AGENT_PLACEHOLDER}$agent_placeholder$;
+
+      INSERT INTO investigation_agents(
+        id,name,description,instructions,identity_text,method_text,guardrails_text,is_default
+      ) VALUES(
+        $general_id$${GENERAL_CHAT_AGENT_ID}$general_id$,
+        $general_name$${GENERAL_CHAT_AGENT_NAME}$general_name$,
+        $general_description$${GENERAL_CHAT_AGENT_DESCRIPTION}$general_description$,
+        $general_instructions$${GENERAL_CHAT_AGENT_INSTRUCTIONS}$general_instructions$,
+        $general_identity$${GENERAL_CHAT_AGENT_IDENTITY}$general_identity$,
+        $general_method$${GENERAL_CHAT_AGENT_METHOD}$general_method$,
+        $general_guardrails$${GENERAL_CHAT_AGENT_GUARDRAILS}$general_guardrails$,
+        FALSE
+      ) ON CONFLICT(id) DO NOTHING;
 
 
     `);

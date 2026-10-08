@@ -83,7 +83,7 @@ export type IncidentContext = {
   submittedAt: string;
 };
 
-export type InvestigationKind="alert"|"incident";
+export type InvestigationKind="alert"|"incident"|"chat";
 export type InvestigationStatus="ongoing"|"closed";
 export type DecisionClassification="false_positive"|"critical"|"high"|"medium"|"low";
 export type LearningStatus="active"|"review"|"disabled";

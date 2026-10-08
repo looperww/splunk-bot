@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { investigate, planInvestigation } from "@/lib/ai";
+import { investigate, planInvestigation, respondToGeneralChat } from "@/lib/ai";
 import { getAiRuntimeSettings } from "@/lib/ai-settings";
 import { getAgent } from "@/lib/agents";
+import { GENERAL_CHAT_AGENT_ID } from "@/lib/agent-defaults";
 import { requireApiAuth } from "@/lib/auth";
 import {
   appendInvestigationAiContext,
@@ -79,9 +80,6 @@ export async function POST(request:NextRequest){
 
     const ai=await getAiRuntimeSettings();
     const connectionId=String(record.connectionId??"").trim();
-    if(!connectionId){
-      return NextResponse.json({error:"A Splunk connection must be selected before investigating."},{status:400});
-    }
     const agentId=record.agentId??"default-soc-agent";
     const agent=await getAgent(agentId);
     if(!agent){
@@ -89,6 +87,25 @@ export async function POST(request:NextRequest){
     }
     const model=record.aiModel?.trim()||ai.model;
     const aiOptions={model,thinkEnabled:record.thinkEnabled};
+    if(record.kind==="chat"||agent.id===GENERAL_CHAT_AGENT_ID){
+      const content=await respondToGeneralChat(messages,agent,aiOptions);
+      const responseMessage:ChatMessage={id:randomUUID(),role:"assistant",content};
+      await appendInvestigationMessage(record.id,responseMessage);
+      await updateInvestigation(record.id,{budget:null});
+      return NextResponse.json({
+        status:"completed",
+        message:responseMessage,
+        questions:[],
+        scope:record.scope,
+        searches:[],
+        skills:[],
+        budget:null,
+        agent,
+      });
+    }
+    if(!connectionId){
+      return NextResponse.json({error:"A Splunk connection must be selected before investigating."},{status:400});
+    }
     const storedAiContext=await getInvestigationAiContext(record.id);
     const conversationState:InvestigationConversationState={
       scope:record.scope,
