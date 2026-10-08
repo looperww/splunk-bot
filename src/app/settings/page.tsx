@@ -13,7 +13,7 @@ export default function SettingsPage(){
       <div>
         <div className="eyebrow">CONFIGURATION</div>
         <h1>Settings</h1>
-        <p>Manage server-side Splunk connections, AI models, and threat-intelligence credentials.</p>
+        <p>Manage Splunk connections, AI models and chat search limits, and threat-intelligence credentials.</p>
       </div>
     </header>
     <SplunkConnectionPanel

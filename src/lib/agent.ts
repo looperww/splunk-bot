@@ -13,6 +13,27 @@ export const AGENT_CONFIG = {
   maxQueryChars: 4000,
 } as const;
 
+export const MIN_SEARCHES_PER_TURN=1;
+export const MAX_SEARCHES_PER_TURN=12;
+
+export function normalizeSearchLimit(value:unknown):number|null{
+  const limit=typeof value==="number"?value:Number(value);
+  return Number.isInteger(limit)&&
+    limit>=MIN_SEARCHES_PER_TURN&&
+    limit<=MAX_SEARCHES_PER_TURN
+      ?limit
+      :null;
+}
+
+export function resolveAgentSearchBudget(value:unknown=AGENT_CONFIG.maxSearchesPerTurn){
+  const maxSearchesPerTurn=normalizeSearchLimit(value)??AGENT_CONFIG.maxSearchesPerTurn;
+  return {
+    maxSearchesPerTurn,
+    maxSearchAttemptsPerTurn:Math.max(AGENT_CONFIG.maxSearchAttemptsPerTurn,maxSearchesPerTurn*2),
+    maxToolRounds:AGENT_CONFIG.maxToolRounds,
+  };
+}
+
 export type AgentPhase =
   | "intake"
   | "skill_selection"
@@ -40,10 +61,12 @@ export const AGENT_METHOD = [
   "8. Presentation: format analyst-facing responses as readable GitHub-Flavored Markdown with short headings, concise paragraphs, bullets for findings or actions, tables only for compact comparisons, and fenced code blocks for SPL. Do not emit raw HTML.",
 ].join("\n");
 
-export const AGENT_GUARDRAILS = [
+export function buildAgentGuardrails(searchBudget=resolveAgentSearchBudget()){
+  return [
   "TOOL GOVERNANCE",
   "You have exactly one operational tool: read-only Splunk search.",
-  `You may complete at most ${AGENT_CONFIG.maxSearchesPerTurn} Splunk searches in this invocation. Failed attempts do not use this successful-search budget, but all calls are bounded to ${AGENT_CONFIG.maxSearchAttemptsPerTurn} attempts and ${AGENT_CONFIG.maxToolRounds} tool rounds. If a search fails, use the returned error to correct it; stop retrying if the error indicates a connection or permissions problem.`,
+  `You may complete at most ${searchBudget.maxSearchesPerTurn} Splunk searches in this invocation. Failed attempts do not use this successful-search budget, but all calls are bounded to ${searchBudget.maxSearchAttemptsPerTurn} attempts and ${searchBudget.maxToolRounds} tool rounds. If a search fails, use the returned error to correct it; stop retrying if the error indicates a connection or permissions problem.`,
+  "These application-enforced limits supersede any different search limits in the selected agent profile.",
   "The application, not the model, supplies the approved earliest/latest time window to every Splunk search.",
   "Do not ask the tool to search outside the approved scope.",
   "Prefer explicit index/sourcetype constraints when the environment provides them.",
@@ -77,7 +100,10 @@ export const AGENT_GUARDRAILS = [
   "Use GitHub-Flavored Markdown for analyst-facing output.",
   "Use ## headings for major sections, bullets for evidence and recommendations, and fenced code blocks with the spl language tag for SPL queries.",
   "Keep paragraphs short, avoid decorative formatting, and do not emit raw HTML.",
-].join("\n");
+  ].join("\n");
+}
+
+export const AGENT_GUARDRAILS=buildAgentGuardrails();
 
 export function buildAgentPrompt(
   scope: InvestigationScope,
@@ -85,10 +111,12 @@ export function buildAgentPrompt(
   eventContext?: Record<string, unknown>,
   agent?: InvestigationAgent,
   incidentContext?: IncidentContext,
+  searchBudget=resolveAgentSearchBudget(),
 ): string {
   const safeContext = eventContext
     ? JSON.stringify(eventContext).slice(0, AGENT_CONFIG.maxEventContextChars)
     : "";
+  const platformGuardrails=buildAgentGuardrails(searchBudget);
 
   return [
     agent?.identity||AGENT_IDENTITY,
@@ -103,9 +131,9 @@ export function buildAgentPrompt(
       :"",
     agent?.method||AGENT_METHOD,
     "",
-    (agent?.guardrails||AGENT_GUARDRAILS),
+    (agent?.guardrails||platformGuardrails),
     "",
-    "PLATFORM SAFETY GOVERNANCE\n"+AGENT_GUARDRAILS,
+    "PLATFORM SAFETY GOVERNANCE\n"+platformGuardrails,
     "",
     "APPROVED SCOPE",
     JSON.stringify(scope),
