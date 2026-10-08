@@ -8,6 +8,7 @@ import { useAppState } from "@/components/app-shell";
 import MarkdownMessage from "@/components/markdown-message";
 import type { InvestigationAgent } from "@/lib/agents";
 import { eventSourceIp } from "@/lib/event-matching";
+import { reasoningModeProfile } from "@/lib/reasoning-mode";
 import type {
   AgentBudget,
   AbuseIpdbEnrichment,
@@ -105,10 +106,6 @@ function formatSplQuery(query:string):string{
 
 function decisionLabel(value:DecisionClassification):string{
   return value==="false_positive"?"False positive":value.charAt(0).toUpperCase()+value.slice(1);
-}
-
-function modelSupportsThinking(model:string):boolean{
-  return /^(gpt-5|o\d(?:-|$)|gpt-oss)/i.test(model.trim());
 }
 
 function eventContext(event:AmeEvent):Record<string,unknown>{
@@ -771,7 +768,7 @@ export default function InvestigatorWorkspace(){
   }
 
   function changeChatModel(model:string){
-    const keepThinking=Boolean(activeInvestigation?.thinkEnabled)&&modelSupportsThinking(model);
+    const keepThinking=Boolean(activeInvestigation?.thinkEnabled)&&reasoningModeProfile(model).available;
     void updateChatSettings({aiModel:model,thinkEnabled:keepThinking});
   }
 
@@ -1229,6 +1226,9 @@ export default function InvestigatorWorkspace(){
     </button>;
   }
 
+  const thinkingModel=activeInvestigation?.aiModel??defaultAiModel;
+  const reasoningProfile=reasoningModeProfile(thinkingModel);
+
   return <main className="page-shell">
     <header className="page-heading">
       <div>
@@ -1478,11 +1478,21 @@ export default function InvestigatorWorkspace(){
                 <label className="investigation-thinking-toggle">
                   <input
                     type="checkbox"
-                    checked={activeInvestigation.thinkEnabled}
+                    checked={reasoningProfile.available&&(
+                      !reasoningProfile.toggleAvailable||activeInvestigation.thinkEnabled
+                    )}
                     onChange={(event)=>void updateChatSettings({thinkEnabled:event.target.checked})}
-                    disabled={sending||deleting||!modelSupportsThinking(activeInvestigation.aiModel??defaultAiModel)}
+                    disabled={sending||deleting||!reasoningProfile.toggleAvailable}
                   />
-                  <span><strong>Thinking mode</strong><small>{!modelSupportsThinking(activeInvestigation.aiModel??defaultAiModel)?"Choose a reasoning-capable model":""}{modelSupportsThinking(activeInvestigation.aiModel??defaultAiModel)&&(activeInvestigation.thinkEnabled?"Reasoning enabled for this chat":"Standard responses")}</small></span>
+                  <span><strong>Reasoning effort</strong><small>{!reasoningProfile.available
+                    ?"This model does not expose a supported reasoning-effort setting."
+                    :!reasoningProfile.toggleAvailable
+                      ?"Fixed by this model: "+reasoningProfile.disabledEffort+" effort."
+                      :activeInvestigation.thinkEnabled
+                        ?"Higher effort requested: "+reasoningProfile.enabledEffort+"."
+                        :reasoningProfile.disabledEffort==="none"
+                          ?"Off: the request explicitly sets reasoning effort to none."
+                          :"Lowest supported effort: "+reasoningProfile.disabledEffort+". This model cannot fully turn reasoning off."}</small></span>
                 </label>
               </div>
             </div>
