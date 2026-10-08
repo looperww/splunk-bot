@@ -70,6 +70,21 @@ function formatDate(value:string|null|undefined){
   return date.toLocaleString(undefined,{dateStyle:"medium",timeStyle:"short"});
 }
 
+function compactSearchHistory(searches:SearchAudit[]):SearchAudit[]{
+  return searches.slice(-8).map((search)=>({
+    ...search,
+    query:search.query.slice(0,1200),
+    evidencePreview:search.evidencePreview?.slice(0,2).map((row)=>Object.fromEntries(
+      Object.entries(row).slice(0,12).map(([key,value])=>[
+        key,
+        typeof value==="string"?value.slice(0,400)
+          :value===null||typeof value==="number"||typeof value==="boolean"?value
+            :String(JSON.stringify(value)??value).slice(0,400),
+      ]),
+    )),
+  }));
+}
+
 function formatSplQuery(query:string):string{
   let formatted="";
   let quote="";
@@ -806,6 +821,8 @@ export default function InvestigatorWorkspace(){
         messages:nextMessages,
         eventContext:record.eventContext??undefined,
         incidentContext:record.incidentContext??undefined,
+        scope:record.scope??undefined,
+        searches:compactSearchHistory(record.searches),
         connectionId:record.connectionId??selectedConnection?.id,
         agentId:record.agentId??agentId,
         model:record.aiModel??defaultAiModel,
@@ -830,7 +847,9 @@ export default function InvestigatorWorkspace(){
     setActiveInvestigation(updated);
     setQuestions(data.questions??[]);
     setInvestigations((current)=>current.map((item)=>item.id===updated.id?updated:item));
-    await persistInvestigation(updated);
+    if(!await persistInvestigation(updated)){
+      setError("The AI responded, but the conversation could not be saved. Refreshing may lose recent chat context.");
+    }
     return updated;
   }
 
