@@ -406,6 +406,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .investigation-scope-summary{grid-template-columns:1fr 1fr;gap:9px}.investigation-scope-summary>div{padding:11px}.investigation-scope-summary strong{font-size:10px;line-height:1.55;color:#29415f}
 .investigation-report-text{min-height:180px;border-color:#d8e1ec;border-radius:8px;padding:15px;background:#fff;color:#31445f;font-size:11px;line-height:1.7}
 .investigation-evidence-list{gap:9px}.investigation-evidence-card{border-color:#d9e2ec;border-radius:7px;padding:10px 11px}.investigation-evidence-card summary{font-size:9px}.investigation-evidence-card code,.investigation-evidence-card pre{font-size:9px;line-height:1.6}
+.search-budget-status{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:-5px 0 12px;padding:9px 11px;border:1px solid #d7e4ef;border-radius:7px;background:#fff;color:#36516f;font-size:10px}.search-budget-status strong{font-size:10px}.search-budget-status span{color:#71839a;text-align:right}
 
 .login-page{background:#f4f7fb}.login-card{border-radius:12px;box-shadow:0 20px 60px rgba(18,33,61,.12);padding:30px}.login-heading h1{font-size:25px}.login-form input{border-color:#d5deea;border-radius:7px}
 

@@ -5,6 +5,7 @@ import type { IncidentContext } from "@/lib/types";
 
 export const AGENT_CONFIG = {
   maxSearchesPerTurn: 6,
+  maxSearchAttemptsPerTurn: 12,
   maxToolRounds: 4,
   maxRawEvidenceEvents: 50,
   maxAggregateRows: 200,
@@ -42,7 +43,7 @@ export const AGENT_METHOD = [
 export const AGENT_GUARDRAILS = [
   "TOOL GOVERNANCE",
   "You have exactly one operational tool: read-only Splunk search.",
-  `You may use at most ${AGENT_CONFIG.maxSearchesPerTurn} Splunk searches in this invocation and at most ${AGENT_CONFIG.maxToolRounds} tool rounds.`,
+  `You may complete at most ${AGENT_CONFIG.maxSearchesPerTurn} Splunk searches in this invocation. Failed attempts do not use this successful-search budget, but all calls are bounded to ${AGENT_CONFIG.maxSearchAttemptsPerTurn} attempts and ${AGENT_CONFIG.maxToolRounds} tool rounds. If a search fails, use the returned error to correct it; stop retrying if the error indicates a connection or permissions problem.`,
   "The application, not the model, supplies the approved earliest/latest time window to every Splunk search.",
   "Do not ask the tool to search outside the approved scope.",
   "Prefer explicit index/sourcetype constraints when the environment provides them.",

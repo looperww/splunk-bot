@@ -595,10 +595,14 @@ export async function investigate(
   const cache=new Map<string,Awaited<ReturnType<typeof searchSplunk>>>();
 
   let searchCount=0;
+  let searchAttempts=0;
   let toolRounds=0;
+  const searchErrors:string[]=[];
+  let finalizationError="";
 
   while(
     searchCount<AGENT_CONFIG.maxSearchesPerTurn &&
+    searchAttempts<AGENT_CONFIG.maxSearchAttemptsPerTurn &&
     toolRounds<AGENT_CONFIG.maxToolRounds
   ){
     const calls=(response.output??[]).filter(
@@ -610,20 +614,44 @@ export async function investigate(
     toolRounds++;
     const outputs:unknown[]=[];
 
-    for(const call of calls.slice(
-      0,
-      AGENT_CONFIG.maxSearchesPerTurn-searchCount,
-    )){
-      if(!call.call_id||!call.arguments) continue;
+    for(const call of calls){
+      if(
+        searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn||
+        searchCount>=AGENT_CONFIG.maxSearchesPerTurn
+      ){
+        if(call.call_id){
+          outputs.push({
+            type:"function_call_output",
+            call_id:call.call_id,
+            output:JSON.stringify({
+              error:searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn
+                ?"The search-attempt limit for this turn has been reached. Stop searching and summarize the evidence collected so far."
+                :"The successful-search budget for this turn has been reached. Stop searching and summarize the evidence collected so far.",
+            }),
+          });
+        }
+        continue;
+      }
 
-      searchCount++;
+      searchAttempts++;
+      if(!call.call_id){
+        searchErrors.push("The AI returned an incomplete Splunk search call without an identifier.");
+        continue;
+      }
 
       try{
+        if(!call.arguments){
+          throw new Error("The Splunk search call did not include query arguments.");
+        }
         const args=JSON.parse(call.arguments) as {
           query:string;
           reason:string;
           phase:"baseline"|"pivot"|"confirmation";
         };
+
+        if(typeof args.query!=="string"||!args.query.trim()){
+          throw new Error("The Splunk search query is missing or empty.");
+        }
 
         if(args.query.length>AGENT_CONFIG.maxQueryChars){
           throw new Error("Search query exceeds the agent query budget.");
@@ -654,6 +682,7 @@ export async function investigate(
           cached=true;
         }
 
+        searchCount++;
         searches.push({
           searchId:result.searchId,
           query:result.query,
@@ -683,6 +712,9 @@ export async function investigate(
           }),
         });
       }catch(error){
+        searchErrors.push(
+          error instanceof Error?error.message:"Search failed.",
+        );
         outputs.push({
           type:"function_call_output",
           call_id:call.call_id,
@@ -695,6 +727,8 @@ export async function investigate(
       }
     }
 
+    if(!outputs.length) break;
+
     response=await callAI(
       ai.apiKey,
       ai.model,
@@ -706,13 +740,61 @@ export async function investigate(
     );
   }
 
-  const finalMessage=extractText(response)||
+  let finalMessage=extractText(response);
+  const reachedLimit=
+    searchCount>=AGENT_CONFIG.maxSearchesPerTurn||
+    searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn||
+    toolRounds>=AGENT_CONFIG.maxToolRounds;
+
+  if(!finalMessage&&reachedLimit){
+    try{
+      response=await callAI(
+        ai.apiKey,
+        ai.model,
+        [{
+          role:"developer",
+          content:[
+            "FINALIZE THIS INVESTIGATION TURN.",
+            "Do not call tools. Use only the conversation and search results or errors already available in the response history.",
+            "Write a useful, readable report with the known scope, verified evidence, analysis, gaps, and human-approved next steps.",
+            "If no Splunk search succeeded, say that clearly and do not imply that the event was verified.",
+          ].join(" "),
+        }],
+        [],
+        response.id,
+        "none",
+        options,
+      );
+      finalMessage=extractText(response);
+    }catch(error){
+      finalizationError=error instanceof Error?error.message:"AI request failed.";
+    }
+  }
+
+  finalMessage=finalMessage||
     [
       "The investigation ended without a final report.",
       searchCount>=AGENT_CONFIG.maxSearchesPerTurn
-        ?"The configured search budget was exhausted."
+        ?"The successful-search budget was exhausted."
+        :searchAttempts>=AGENT_CONFIG.maxSearchAttemptsPerTurn
+          ?"The search-attempt limit was reached."
         :"No additional search was requested.",
     ].join(" ");
+
+  if(searchErrors.length){
+    const uniqueErrors=[...new Set(searchErrors.map((error)=>error.replace(/\s+/g," ").trim()))]
+      .filter(Boolean)
+      .slice(0,2)
+      .map((error)=>error.slice(0,320));
+    finalMessage+="\n\n### Splunk search status\n"+
+      `Completed searches: ${searchCount}/${AGENT_CONFIG.maxSearchesPerTurn}. `+
+      `Attempts: ${searchAttempts}/${AGENT_CONFIG.maxSearchAttemptsPerTurn}. `+
+      `${searchErrors.length} attempt(s) failed and did not consume the completed-search budget.`+
+      (uniqueErrors.length?"\n\n"+uniqueErrors.map((error)=>"- "+error).join("\n"):"");
+  }
+  if(finalizationError){
+    finalMessage+="\n\nReport generation could not be completed: "+finalizationError.slice(0,320);
+  }
 
   return {
     message:{role:"assistant" as const,content:finalMessage},
@@ -720,6 +802,7 @@ export async function investigate(
     skills:skills.map((skill)=>skill.name),
     budget:{
       searchesUsed:searchCount,
+      searchAttempts,
       searchLimit:AGENT_CONFIG.maxSearchesPerTurn,
       toolRounds,
       toolRoundLimit:AGENT_CONFIG.maxToolRounds,
