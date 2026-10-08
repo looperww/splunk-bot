@@ -1547,6 +1547,7 @@ export default function InvestigatorWorkspace(){
               {activeInvestigation.budget?.searchAttempts!==undefined&&<div className="search-budget-status" role="status">
                 <strong>This turn · {activeInvestigation.budget.searchesUsed}/{activeInvestigation.budget.searchLimit} searches completed</strong>
                 <span>{activeInvestigation.budget.searchAttempts} attempts · {activeInvestigation.budget.toolRounds}/{activeInvestigation.budget.toolRoundLimit} tool rounds</span>
+                {activeInvestigation.budget.recoveryAttemptsLimit!==undefined&&<span>{activeInvestigation.budget.recoveryAttemptsUsed??0}/{activeInvestigation.budget.recoveryAttemptsLimit} AI repairs{activeInvestigation.budget.automaticRetries?" · "+activeInvestigation.budget.automaticRetries+" API retries":""}</span>}
               </div>}
               <section className="abuseipdb-card" aria-labelledby="abuseipdb-card-title">
                 <div className="abuseipdb-card-heading">
@@ -1619,6 +1620,7 @@ export default function InvestigatorWorkspace(){
                 {activeInvestigation.searches.map((search)=><details className="investigation-evidence-card" key={search.searchId}>
                   <summary><span>{search.phase} · {search.resultCount} results{search.cached?" · cached":""}</span><code>{search.searchId.slice(0,8)}</code></summary>
                   <code>{search.query}</code>
+                  {search.recoveryNotes?.length?<p className="search-recovery-notes"><strong>Recovery:</strong> {search.recoveryNotes.join(" ")}</p>:null}
                   {search.evidencePreview&&<pre>{JSON.stringify(search.evidencePreview,null,2)}</pre>}
                 </details>)}
               </div>}

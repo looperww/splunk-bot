@@ -2,6 +2,7 @@ import { getAiRuntimeSettings } from "@/lib/ai-settings";
 import type { InvestigationAgent } from "@/lib/agents";
 import { investigateLocally } from "@/lib/local-investigator";
 import { searchSplunk } from "@/lib/splunk";
+import { SplunkSearchError } from "@/lib/splunk-recovery";
 import {
   mockClarificationPlan,
   normalizePlan,
@@ -553,6 +554,35 @@ export async function planInvestigation(
   );
 }
 
+function splunkToolError(
+  error:unknown,
+  retryAllowed:boolean,
+):Record<string,unknown>{
+  const typed=error instanceof SplunkSearchError?error:null;
+  const message=error instanceof Error?error.message:"Splunk search failed.";
+  return {
+    error:message.slice(0,700),
+    category:typed?.category??"application",
+    retryAllowed,
+    recoveryAction:retryAllowed
+      ?"Make one materially corrected SPL attempt; do not repeat the failed query."
+      :"Stop searching for this failure and explain the limitation to the analyst.",
+    recoveryNotes:typed?.recoveryNotes??[],
+  };
+}
+
+function blockedSearchOutput(callId:string,message:string):unknown{
+  return {
+    type:"function_call_output",
+    call_id:callId,
+    output:JSON.stringify({
+      error:message,
+      category:"recovery_limit",
+      retryAllowed:false,
+    }),
+  };
+}
+
 export async function investigate(
   messages:ChatMessage[],
   eventContext:Record<string,unknown>|undefined,
@@ -606,13 +636,20 @@ export async function investigate(
     phase:"baseline"|"pivot"|"confirmation";
     cached:boolean;
     evidencePreview?:Record<string,unknown>[];
+    recoveryNotes?:string[];
   }>=[];
   const cache=new Map<string,Awaited<ReturnType<typeof searchSplunk>>>();
 
   let searchCount=0;
   let searchAttempts=0;
   let toolRounds=0;
+  let recoveryAttempts=0;
+  let automaticRetries=0;
+  let recoveryPending=false;
+  let recoveryStopped=false;
+  let failedRecoveryKey="";
   const searchErrors:string[]=[];
+  const recoveryNotes:string[]=[];
   let finalizationError="";
 
   while(
@@ -628,32 +665,52 @@ export async function investigate(
 
     toolRounds++;
     const outputs:unknown[]=[];
+    const recoveryRound=recoveryPending;
+    if(recoveryRound) recoveryPending=false;
+    let recoveryCallTaken=false;
 
     for(const call of calls){
+      if(!call.call_id) continue;
+
+      if(recoveryStopped){
+        outputs.push(blockedSearchOutput(
+          call.call_id,
+          "Searching stopped after the bounded recovery failed or the error requires an operator. Explain the error; do not issue another search.",
+        ));
+        continue;
+      }
+
+      if(recoveryRound&&recoveryCallTaken){
+        recoveryNotes.push("Only the first proposed correction search was executed; additional simultaneous searches were withheld.");
+        outputs.push(blockedSearchOutput(
+          call.call_id,
+          "Only one correction search is allowed for this error. Use its result before proposing any further search.",
+        ));
+        continue;
+      }
+
       if(
         searchAttempts>=searchBudget.maxSearchAttemptsPerTurn||
         searchCount>=searchBudget.maxSearchesPerTurn
       ){
-        if(call.call_id){
-          outputs.push({
-            type:"function_call_output",
-            call_id:call.call_id,
-            output:JSON.stringify({
-              error:searchAttempts>=searchBudget.maxSearchAttemptsPerTurn
-                ?"The search-attempt limit for this turn has been reached. Stop searching and summarize the evidence collected so far."
-                :"The successful-search budget for this turn has been reached. Stop searching and summarize the evidence collected so far.",
-            }),
-          });
-        }
+        outputs.push(blockedSearchOutput(
+          call.call_id,
+          searchAttempts>=searchBudget.maxSearchAttemptsPerTurn
+            ?"The search-attempt limit for this turn has been reached. Stop searching and summarize the evidence collected so far."
+            :"The successful-search budget for this turn has been reached. Stop searching and summarize the evidence collected so far.",
+        ));
+        if(recoveryRound) recoveryStopped=true;
         continue;
       }
 
       searchAttempts++;
-      if(!call.call_id){
-        searchErrors.push("The AI returned an incomplete Splunk search call without an identifier.");
-        continue;
+      const isRecoveryCall=recoveryRound&&!recoveryCallTaken;
+      if(isRecoveryCall){
+        recoveryCallTaken=true;
+        recoveryAttempts++;
       }
 
+      let attemptedKey="";
       try{
         if(!call.arguments){
           throw new Error("The Splunk search call did not include query arguments.");
@@ -677,6 +734,16 @@ export async function investigate(
           scope.earliest,
           scope.latest,
         );
+        attemptedKey=key;
+
+        if(isRecoveryCall&&key===failedRecoveryKey){
+          const message="The one allowed correction attempt repeated the same SPL. No duplicate Splunk request was sent.";
+          searchErrors.push(message);
+          recoveryNotes.push(message);
+          recoveryStopped=true;
+          outputs.push(blockedSearchOutput(call.call_id,message));
+          continue;
+        }
 
         let result=cache.get(key);
         let cached=false;
@@ -697,6 +764,16 @@ export async function investigate(
           cached=true;
         }
 
+        automaticRetries+=result.recoveryNotes.length;
+        recoveryNotes.push(...result.recoveryNotes);
+        const searchRecoveryNotes=[...result.recoveryNotes];
+        if(isRecoveryCall){
+          const note="The AI changed the SPL after a recognized search error; its single correction attempt succeeded.";
+          searchRecoveryNotes.push(note);
+          recoveryNotes.push(note);
+          failedRecoveryKey="";
+        }
+
         searchCount++;
         searches.push({
           searchId:result.searchId,
@@ -708,6 +785,7 @@ export async function investigate(
           phase:args.phase,
           cached,
           evidencePreview:result.results.slice(0,10),
+          recoveryNotes:searchRecoveryNotes,
         });
 
         outputs.push({
@@ -723,21 +801,36 @@ export async function investigate(
             resultCount:result.results.length,
             truncated:result.truncated,
             cached,
+            recoveryNotes:result.recoveryNotes,
             results:result.results,
           }),
         });
       }catch(error){
-        searchErrors.push(
-          error instanceof Error?error.message:"Search failed.",
-        );
+        const message=error instanceof Error?error.message:"Search failed.";
+        searchErrors.push(message);
+        if(error instanceof SplunkSearchError&&error.recoveryNotes.length){
+          automaticRetries+=error.recoveryNotes.length;
+          recoveryNotes.push(...error.recoveryNotes);
+        }
+
+        const mayRepair=error instanceof SplunkSearchError&&
+          error.recovery==="model_repair_once"&&
+          !isRecoveryCall&&
+          recoveryAttempts===0&&
+          !recoveryPending;
+        if(mayRepair){
+          recoveryPending=true;
+          failedRecoveryKey=attemptedKey;
+        }else{
+          recoveryStopped=true;
+          if(isRecoveryCall){
+            recoveryNotes.push("The one allowed AI query correction did not resolve the error; no further searches were sent.");
+          }
+        }
         outputs.push({
           type:"function_call_output",
           call_id:call.call_id,
-          output:JSON.stringify({
-            error:error instanceof Error
-              ?error.message
-              :"Search failed.",
-          }),
+          output:JSON.stringify(splunkToolError(error,mayRepair)),
         });
       }
     }
@@ -748,11 +841,12 @@ export async function investigate(
       ai.apiKey,
       ai.model,
       outputs,
-      [searchTool],
+      recoveryStopped?[]:[searchTool],
       response.id,
-      undefined,
+      recoveryStopped?"none":undefined,
       options,
     );
+    if(recoveryStopped) break;
   }
 
   let finalMessage=extractText(response);
@@ -761,7 +855,7 @@ export async function investigate(
     searchAttempts>=searchBudget.maxSearchAttemptsPerTurn||
     toolRounds>=searchBudget.maxToolRounds;
 
-  if(!finalMessage&&reachedLimit){
+  if(!finalMessage&&(reachedLimit||recoveryStopped||recoveryPending)){
     try{
       response=await callAI(
         ai.apiKey,
@@ -796,15 +890,21 @@ export async function investigate(
         :"No additional search was requested.",
     ].join(" ");
 
-  if(searchErrors.length){
+  if(searchErrors.length||recoveryNotes.length||recoveryPending){
     const uniqueErrors=[...new Set(searchErrors.map((error)=>error.replace(/\s+/g," ").trim()))]
       .filter(Boolean)
       .slice(0,2)
       .map((error)=>error.slice(0,320));
-    finalMessage+="\n\n### Splunk search status\n"+
-      `Completed searches: ${searchCount}/${searchBudget.maxSearchesPerTurn}. `+
-      `Attempts: ${searchAttempts}/${searchBudget.maxSearchAttemptsPerTurn}. `+
-      `${searchErrors.length} attempt(s) failed and did not consume the completed-search budget.`+
+    const uniqueRecoveryNotes=[...new Set(recoveryNotes.map((note)=>note.replace(/\s+/g," ").trim()))]
+      .filter(Boolean)
+      .slice(0,3);
+    finalMessage+="\n\n### Splunk search recovery\n"+
+      "Completed searches: "+searchCount+"/"+searchBudget.maxSearchesPerTurn+". "+
+      "Attempts: "+searchAttempts+"/"+searchBudget.maxSearchAttemptsPerTurn+". "+
+      "AI corrections: "+recoveryAttempts+"/1. Automatic API retries: "+automaticRetries+"."+
+      (searchErrors.length?"\n\nEncountered "+searchErrors.length+" failed attempt(s); failed attempts do not consume the completed-search budget.":"")+
+      (recoveryPending&&!recoveryAttempts?"\n\nThe AI did not request the single available SPL correction attempt.":"")+
+      (uniqueRecoveryNotes.length?"\n\n"+uniqueRecoveryNotes.map((note)=>"- "+note).join("\n"):"")+
       (uniqueErrors.length?"\n\n"+uniqueErrors.map((error)=>"- "+error).join("\n"):"");
   }
   if(finalizationError){
@@ -821,6 +921,9 @@ export async function investigate(
       searchLimit:searchBudget.maxSearchesPerTurn,
       toolRounds,
       toolRoundLimit:searchBudget.maxToolRounds,
+      recoveryAttemptsUsed:recoveryAttempts,
+      recoveryAttemptsLimit:1,
+      automaticRetries,
     },
   };
 }
