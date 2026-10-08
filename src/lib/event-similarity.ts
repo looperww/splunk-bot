@@ -51,6 +51,11 @@ export async function reviewPriorClosedAlerts(input:{
   await ensureSchema();
   const destination=eventDestinationIp(input.eventContext);
   const sourceIp=eventSourceIp(input.eventContext);
+  const similaritySignals=eventSimilarityHighlights(input.eventContext,input.eventContext)
+    .filter(({label,value})=>[
+      "Source IP","Destination IP","Host","User","Domain","Process","File hash","IOC",
+    ].includes(label)&&value.length>=4)
+    .map(({value})=>value);
   const rows=await query<Row>(
     `SELECT id,title,description,source_event_id,event_context,report,
             closure_classification,closure_reason,created_at,updated_at
@@ -64,12 +69,16 @@ export async function reviewPriorClosedAlerts(input:{
             LOWER(title)=LOWER($2)
             OR ($4::text IS NOT NULL AND event_context::text LIKE '%' || $4 || '%')
             OR ($5::text IS NOT NULL AND event_context::text LIKE '%' || $5 || '%')
+            OR EXISTS (
+              SELECT 1 FROM UNNEST($6::text[]) AS signals(value)
+               WHERE POSITION(LOWER(signals.value) IN LOWER(event_context::text))>0
+            )
           ))
         )
       ORDER BY CASE WHEN $4::text IS NOT NULL AND event_context::text LIKE '%' || $4 || '%' THEN 0 ELSE 1 END,
                updated_at DESC
       LIMIT 30`,
-    [input.connectionId,input.title,input.onlyId??null,destination&&isIP(destination)?destination:null,sourceIp&&isIP(sourceIp)?sourceIp:null],
+    [input.connectionId,input.title,input.onlyId??null,destination&&isIP(destination)?destination:null,sourceIp&&isIP(sourceIp)?sourceIp:null,similaritySignals],
   );
   const source={kind:"alert",title:input.title,eventContext:input.eventContext};
   const candidates=rows.map((row)=>({
