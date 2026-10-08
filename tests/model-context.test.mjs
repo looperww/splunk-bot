@@ -3,6 +3,8 @@ import test from "node:test";
 import { fitModelRequest, modelContextWindowTokens } from "../src/lib/model-context.ts";
 
 test("uses known model context windows and a safe fallback",()=>{
+  assert.equal(modelContextWindowTokens("gpt-6-luna"),1_050_000);
+  assert.equal(modelContextWindowTokens("gpt-6-sol-2026-09-01"),1_050_000);
   assert.equal(modelContextWindowTokens("gpt-5.6-luna"),1_050_000);
   assert.equal(modelContextWindowTokens("gpt-5.5"),1_050_000);
   assert.equal(modelContextWindowTokens("gpt-5.4-mini"),400_000);
@@ -30,10 +32,10 @@ test("fits the prompt to the selected model without changing the saved transcrip
   assert.match(fitted.input[0].content,/complete transcript remains saved/);
 });
 
-test("fits a long ongoing troubleshooting chat to the conservative unknown-model window",()=>{
-  const messages=Array.from({length:36},(_,index)=>({
+test("keeps a long GPT-6 troubleshooting chat under its documented context window",()=>{
+  const messages=Array.from({length:48},(_,index)=>({
     role:index%2===0?"user":"assistant",
-    content:`Prior troubleshooting detail ${index}: ${"service response and investigation context ".repeat(360)}`,
+    content:`Prior troubleshooting detail ${index}: ${"service response and investigation context ".repeat(400)}`,
   }));
   messages.push({role:"user",content:"Test the Splunk API connection only."});
   const input=[
@@ -43,10 +45,11 @@ test("fits a long ongoing troubleshooting chat to the conservative unknown-model
   ];
   const fitted=fitModelRequest(input,[],"gpt-6-luna");
 
-  assert.ok(fitted.omittedMessages>0);
+  assert.equal(fitted.contextWindowTokens,1_050_000);
+  assert.equal(fitted.omittedMessages,0);
   assert.equal(fitted.input.at(-1).content,"Test the Splunk API connection only.");
   assert.ok(fitted.inputTokens+fitted.maxOutputTokens<fitted.contextWindowTokens);
-  assert.equal(input.length,messages.length+2);
+  assert.equal(fitted.input.length,input.length);
 });
 
 test("compacts oversized search results while keeping valid tool output",()=>{
