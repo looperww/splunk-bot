@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { assessEventSimilarity, type EventSimilarityCandidate } from "@/lib/ai";
 import { getCachedAmeEvents } from "@/lib/ame-event-cache";
 import { ensureSchema, query } from "@/lib/db";
+import { dedupeClosureNotifications } from "@/lib/notification-dedupe";
 import {
   compareAlertEvents,
   eventDestinationIp,
@@ -130,8 +131,19 @@ export async function reviewPriorClosedAlerts(input:{
       similarityConfidence:assessment?.confidence,
       similarityHighlights:eventSimilarityHighlights(input.eventContext,candidate.eventContext),
     } satisfies ClosedInvestigationMatch];
-  }).sort((left,right)=>Number(right.canReuse)-Number(left.canReuse));
-  return {matches,warning};
+  }).sort((left,right)=>Number(right.canReuse)-Number(left.canReuse)||right.updatedAt.localeCompare(left.updatedAt));
+  const seenDecisions=new Set<string>();
+  const uniqueMatches=matches.filter((match)=>{
+    const key=[
+      match.title.trim().toLowerCase().replace(/\s+/g," "),
+      match.closureClassification,
+      match.closureReason.trim().toLowerCase().replace(/\s+/g," "),
+    ].join("\u0000");
+    if(seenDecisions.has(key)) return false;
+    seenDecisions.add(key);
+    return true;
+  });
+  return {matches:uniqueMatches,warning};
 }
 
 function openEvent(event:AmeEvent):boolean{
@@ -333,7 +345,9 @@ export async function getPendingEventSimilarityNotifications(
       existing.eventMatches=[...(existing.eventMatches??[]),...item.eventMatches.filter((match)=>!known.has(match.eventId))];
     }
   }
-  return [...grouped.values()].sort((left,right)=>right.createdAt.localeCompare(left.createdAt));
+  return dedupeClosureNotifications(
+    [...grouped.values()].sort((left,right)=>right.createdAt.localeCompare(left.createdAt)),
+  );
 }
 
 type EventGroup={representative:AmeEvent;events:AmeEvent[];exact:boolean};
