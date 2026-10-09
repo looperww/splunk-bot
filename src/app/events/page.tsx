@@ -113,7 +113,7 @@ export default function EventsPage(){
       setCachedAt(data.cachedAt??null);
       for(const notification of data.notifications??[]) addNotification(notification);
       void requestEventHistoryReview(connectionId,(data.events??[]).map((event)=>event.id))
-        .then((items)=>items.forEach(addNotification));
+        .then((items)=>items.forEach((notification)=>addNotification(notification)));
       if(!background) setExpandedId(null);
     }catch(reason){
       if(requestId===requestSequence.current){

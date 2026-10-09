@@ -1229,7 +1229,7 @@ export default function InvestigatorWorkspace(){
       const remainingInvestigations=bulkCloseNotification.matches.filter((match)=>!closedIds.has(match.id));
       const remainingEvents=(bulkCloseNotification.eventMatches??[]).filter((event)=>!closedEventIds.has(event.eventId));
       if(remainingInvestigations.length||remainingEvents.length){
-        addNotification({...bulkCloseNotification,matches:remainingInvestigations,eventMatches:remainingEvents});
+        addNotification({...bulkCloseNotification,matches:remainingInvestigations,eventMatches:remainingEvents},true);
       }else{
         dismissNotification(bulkCloseNotification.id);
       }
