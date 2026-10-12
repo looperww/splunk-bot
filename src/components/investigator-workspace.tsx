@@ -258,6 +258,8 @@ export default function InvestigatorWorkspace(){
   const [copiedQueryId,setCopiedQueryId]=useState("");
   const [bulkCloseOpen,setBulkCloseOpen]=useState(false);
   const [bulkClosing,setBulkClosing]=useState(false);
+  const [bulkSuggestionsLoading,setBulkSuggestionsLoading]=useState(false);
+  const [bulkSuggestionMessage,setBulkSuggestionMessage]=useState("");
   const [bulkCloseNotification,setBulkCloseNotification]=useState<InvestigationClosureNotification|null>(null);
   const [bulkSelectedInvestigationIds,setBulkSelectedInvestigationIds]=useState<string[]>([]);
   const [bulkSelectedEventIds,setBulkSelectedEventIds]=useState<string[]>([]);
@@ -295,11 +297,68 @@ export default function InvestigatorWorkspace(){
   const bulkAllSelected=bulkCloseMatchCount>0&&bulkSelectedCount===bulkCloseMatchCount;
   const selectedPriorClose=priorCloseMatches.find((match)=>match.id===priorCloseSelectedId)??priorCloseMatches[0];
 
-  function showBulkCloseNotification(notification:InvestigationClosureNotification){
-    setBulkCloseNotification(notification);
-    setBulkSelectedInvestigationIds(notification.matches.map((match)=>match.id));
-    setBulkSelectedEventIds((notification.eventMatches??[]).filter((event)=>event.canClose!==false).map((event)=>event.eventId));
+  async function showBulkCloseNotification(notification:InvestigationClosureNotification){
+    const requestedInvestigationIds=notification.matches.map((match)=>match.id);
+    const requestedEventIds=(notification.eventMatches??[]).map((event)=>event.eventId);
+    const pending={...notification,matches:[],eventMatches:[]};
+    setBulkCloseNotification(pending);
+    setBulkSelectedInvestigationIds([]);
+    setBulkSelectedEventIds([]);
     setBulkCloseOpen(true);
+    setBulkSuggestionsLoading(true);
+    setBulkSuggestionMessage("");
+    setError("");
+    try{
+      const response=await fetch("/api/investigations/bulk-close/validate",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          sourceInvestigationId:notification.sourceInvestigationId,
+          investigationIds:requestedInvestigationIds,
+          eventIds:requestedEventIds,
+          classification:notification.classification,
+          reason:notification.reason,
+        }),
+      });
+      const data=await response.json() as {investigationIds?:string[];eventIds?:string[];error?:string};
+      if(response.status===404||response.status===409){
+        dismissNotification(notification.id);
+        setBulkCloseOpen(false);
+        setBulkCloseNotification(null);
+        setNotice("This saved suggestion is no longer current, so it has been removed.");
+        return;
+      }
+      if(!response.ok) throw new Error(data.error??"Could not refresh the suggested alerts.");
+      const validInvestigationIds=new Set(data.investigationIds??[]);
+      const validEventIds=new Set(data.eventIds??[]);
+      const refreshed={
+        ...notification,
+        matches:notification.matches.filter((match)=>validInvestigationIds.has(match.id)),
+        eventMatches:(notification.eventMatches??[]).filter((event)=>validEventIds.has(event.eventId)),
+      };
+      const validCount=refreshed.matches.length+(refreshed.eventMatches?.length??0);
+      if(validCount===0){
+        dismissNotification(notification.id);
+        setBulkCloseOpen(false);
+        setBulkCloseNotification(null);
+        setNotice("No matching alerts are still open. The outdated suggestion has been removed.");
+        return;
+      }
+      addNotification(refreshed,true);
+      setBulkCloseNotification(refreshed);
+      setBulkSelectedInvestigationIds(refreshed.matches.map((match)=>match.id));
+      setBulkSelectedEventIds((refreshed.eventMatches??[]).filter((event)=>event.canClose!==false).map((event)=>event.eventId));
+      const removedCount=requestedInvestigationIds.length+requestedEventIds.length-validCount;
+      setBulkSuggestionMessage(removedCount>0
+        ?`${removedCount} suggestion${removedCount===1?" was":"s were"} removed because it is no longer open or no longer matches.`
+        :"");
+    }catch(reason){
+      setBulkCloseOpen(false);
+      setBulkCloseNotification(null);
+      setError(reason instanceof Error?reason.message:"Could not refresh the suggested alerts.");
+    }finally{
+      setBulkSuggestionsLoading(false);
+    }
   }
   const activeChatAgent=agents.find((agent)=>agent.id===(activeInvestigation?.agentId??agentId))??selectedAgent;
   const ongoing=useMemo(
@@ -1219,6 +1278,10 @@ export default function InvestigatorWorkspace(){
         }),
       });
       const data=await response.json() as {closedIds?:string[];closedEventIds?:string[];error?:string};
+      if(response.status===409){
+        await showBulkCloseNotification(bulkCloseNotification);
+        return;
+      }
       if(!response.ok) throw new Error(data.error??"Failed to close matching alerts.");
       const closedIds=new Set(data.closedIds??[]);
       setInvestigations((current)=>current.map((item)=>closedIds.has(item.id)
@@ -1925,9 +1988,11 @@ export default function InvestigatorWorkspace(){
           <div>
             <div className="eyebrow">SIMILAR EVENT REVIEW</div>
             <h2 id="bulk-close-title">Review events for the same decision</h2>
-            <p>{bulkCloseNotification.autoGenerated
-              ?<>A newly fetched alert was compared with closed decisions. The app found <strong>{bulkCloseMatchCount}</strong> open alert{bulkCloseMatchCount===1?"":"s"} similar to the previous investigation <strong>{bulkCloseNotification.sourceTitle}</strong>. Review each one before applying the same decision.</>
-              :<>After closing <strong>{bulkCloseNotification.sourceTitle}</strong>, the app found <strong>{bulkCloseMatchCount}</strong> open alert{bulkCloseMatchCount===1?"":"s"} that may support the same decision. Select only those you have reviewed.</>}</p>
+            <p>{bulkSuggestionsLoading
+              ?"Checking saved suggestions against the current open-alert list…"
+              :bulkCloseNotification.autoGenerated
+                ?<>A newly fetched alert was compared with closed decisions. The app found <strong>{bulkCloseMatchCount}</strong> open alert{bulkCloseMatchCount===1?"":"s"} similar to the previous investigation <strong>{bulkCloseNotification.sourceTitle}</strong>. Review each one before applying the same decision.</>
+                :<>After closing <strong>{bulkCloseNotification.sourceTitle}</strong>, the app found <strong>{bulkCloseMatchCount}</strong> open alert{bulkCloseMatchCount===1?"":"s"} that may support the same decision. Select only those you have reviewed.</>}</p>
           </div>
           <button className="icon-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing} aria-label="Close">×</button>
         </div>
@@ -1937,48 +2002,53 @@ export default function InvestigatorWorkspace(){
           <div><span className="label">Reason</span><span>{bulkCloseNotification.reason}</span></div>
         </div>
 
-        <div className="bulk-close-select-all-row">
-          <label className="bulk-close-select-all">
-            <input
-              type="checkbox"
-              aria-label="Select all matching alerts and investigations"
-              checked={bulkAllSelected}
-              ref={(input)=>{if(input) input.indeterminate=bulkSelectedCount>0&&!bulkAllSelected;}}
-              disabled={bulkClosing||bulkCloseMatchCount===0}
-              onChange={(change)=>{
-                const selected=change.target.checked;
-                setBulkSelectedInvestigationIds(selected?bulkCloseNotification.matches.map((match)=>match.id):[]);
-                setBulkSelectedEventIds(selected?(bulkCloseNotification.eventMatches??[]).map((event)=>event.eventId):[]);
-              }}
-            />
-            <span>Select all</span>
-          </label>
-          <span className="bulk-close-selection-count">{bulkSelectedCount} of {bulkCloseMatchCount} selected</span>
-        </div>
+        {bulkSuggestionsLoading
+          ?<div className="empty" role="status">Refreshing suggestions and removing alerts that are no longer open…</div>
+          :<>
+            {bulkSuggestionMessage&&<p className="notice-box" role="status">{bulkSuggestionMessage}</p>}
+            <div className="bulk-close-select-all-row">
+              <label className="bulk-close-select-all">
+                <input
+                  type="checkbox"
+                  aria-label="Select all matching alerts and investigations"
+                  checked={bulkAllSelected}
+                  ref={(input)=>{if(input) input.indeterminate=bulkSelectedCount>0&&!bulkAllSelected;}}
+                  disabled={bulkClosing||bulkCloseMatchCount===0}
+                  onChange={(change)=>{
+                    const selected=change.target.checked;
+                    setBulkSelectedInvestigationIds(selected?bulkCloseNotification.matches.map((match)=>match.id):[]);
+                    setBulkSelectedEventIds(selected?(bulkCloseNotification.eventMatches??[]).map((event)=>event.eventId):[]);
+                  }}
+                />
+                <span>Select all</span>
+              </label>
+              <span className="bulk-close-selection-count">{bulkSelectedCount} of {bulkCloseMatchCount} selected</span>
+            </div>
 
-        <div className="bulk-close-match-list" aria-label="Matching open events and investigations">
-          {bulkCloseNotification.matches.map((match)=><label className="bulk-close-match" key={match.id}>
-            <input type="checkbox" checked={bulkSelectedInvestigationIds.includes(match.id)} onChange={(event)=>setBulkSelectedInvestigationIds((current)=>event.target.checked?[...current,match.id]:current.filter((id)=>id!==match.id))}/>
-            <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)} · Exact investigation match</small><SimilarityHighlights sourceTitle={bulkCloseNotification.sourceTitle} title={match.title} highlights={match.similarityHighlights}/></div>
-            <span className="investigation-status ongoing">ongoing</span>
-          </label>)}
-          {(bulkCloseNotification.eventMatches??[]).map((event)=><label className="bulk-close-match" key={event.eventId}>
-            <input type="checkbox" checked={bulkSelectedEventIds.includes(event.eventId)} onChange={(change)=>setBulkSelectedEventIds((current)=>change.target.checked?[...current,event.eventId]:current.filter((id)=>id!==event.eventId))}/>
-            <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}</small><SimilarityHighlights sourceTitle={bulkCloseNotification.sourceTitle} title={event.title} highlights={event.similarityHighlights?.length?event.similarityHighlights:[...(event.sourceIp?[{label:"Source IP",value:event.sourceIp}]:[]),...(event.destinationIp?[{label:"Destination IP",value:event.destinationIp}]:[])]}/>{event.similarityReason&&<small className="similarity-reason">AI similarity: {event.similarityReason}{event.similarityConfidence!==undefined?` · ${Math.round(event.similarityConfidence*100)}% confidence`:""}</small>}</div>
-            <span className="investigation-status ongoing">{event.canClose===false?"review only":"recommended"}</span>
-          </label>)}
-        </div>
+            <div className="bulk-close-match-list" aria-label="Matching open events and investigations">
+              {bulkCloseNotification.matches.map((match)=><label className="bulk-close-match" key={match.id}>
+                <input type="checkbox" checked={bulkSelectedInvestigationIds.includes(match.id)} onChange={(event)=>setBulkSelectedInvestigationIds((current)=>event.target.checked?[...current,match.id]:current.filter((id)=>id!==match.id))}/>
+                <div><strong>{match.title}</strong><small>{match.sourceEventId?`Event ${match.sourceEventId} · `:""}Updated {formatDate(match.updatedAt)} · Exact investigation match</small><SimilarityHighlights sourceTitle={bulkCloseNotification.sourceTitle} title={match.title} highlights={match.similarityHighlights}/></div>
+                <span className="investigation-status ongoing">ongoing</span>
+              </label>)}
+              {(bulkCloseNotification.eventMatches??[]).map((event)=><label className="bulk-close-match" key={event.eventId}>
+                <input type="checkbox" checked={bulkSelectedEventIds.includes(event.eventId)} onChange={(change)=>setBulkSelectedEventIds((current)=>change.target.checked?[...current,event.eventId]:current.filter((id)=>id!==event.eventId))}/>
+                <div><strong>{event.title}</strong><small>Event {event.eventId} · Created {formatDate(event.createdAt)}</small><SimilarityHighlights sourceTitle={bulkCloseNotification.sourceTitle} title={event.title} highlights={event.similarityHighlights?.length?event.similarityHighlights:[...(event.sourceIp?[{label:"Source IP",value:event.sourceIp}]:[]),...(event.destinationIp?[{label:"Destination IP",value:event.destinationIp}]:[])]}/>{event.similarityReason&&<small className="similarity-reason">AI similarity: {event.similarityReason}{event.similarityConfidence!==undefined?` · ${Math.round(event.similarityConfidence*100)}% confidence`:""}</small>}</div>
+                <span className="investigation-status ongoing">{event.canClose===false?"review only":"recommended"}</span>
+              </label>)}
+            </div>
 
-        {bulkCloseNotification.reviewWarning&&<p className="modal-intro" role="status">{bulkCloseNotification.reviewWarning}</p>}
+            {bulkCloseNotification.reviewWarning&&<p className="modal-intro" role="status">{bulkCloseNotification.reviewWarning}</p>}
 
-        <div className="bulk-close-note">
-          <ShieldCheckIcon size={19} weight="duotone"/>
-          <span>AI recommendations are advisory. Review each alert before selecting it. “Review only” means AI did not recommend the same decision; you can still select it if you confirm the decision applies. This action changes Splunk Bot only; Splunk AME status is not changed.</span>
-        </div>
+            <div className="bulk-close-note">
+              <ShieldCheckIcon size={19} weight="duotone"/>
+              <span>AI recommendations are advisory. Review each alert before selecting it. “Review only” means AI did not recommend the same decision; you can still select it if you confirm the decision applies. This action changes Splunk Bot only; Splunk AME status is not changed.</span>
+            </div>
+          </>}
 
         <div className="closure-review-footer">
           <button className="secondary-button" type="button" onClick={()=>setBulkCloseOpen(false)} disabled={bulkClosing}>Not now</button>
-          <button className="primary-button" type="button" onClick={()=>void closeMatchingAlerts()} disabled={bulkClosing||bulkSelectedCount===0}>{bulkClosing?"Closing selected…":`Close selected ${bulkSelectedCount}`}</button>
+          <button className="primary-button" type="button" onClick={()=>void closeMatchingAlerts()} disabled={bulkSuggestionsLoading||bulkClosing||bulkSelectedCount===0}>{bulkSuggestionsLoading?"Checking alerts…":bulkClosing?"Closing selected…":`Close selected ${bulkSelectedCount}`}</button>
         </div>
       </section>
     </div>}
