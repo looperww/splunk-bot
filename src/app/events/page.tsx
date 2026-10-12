@@ -205,7 +205,7 @@ export default function EventsPage(){
 
   function investigate(event:AmeEvent){
     setSelectedEvent(event);
-    router.push("/dashboard");
+    router.push("/dashboard?investigateEvent="+encodeURIComponent(event.id));
   }
 
   function toggleEvent(id:string){
@@ -214,7 +214,7 @@ export default function EventsPage(){
 
   return <main className="page-shell">
     <header className="page-heading">
-      <div><div className="eyebrow">ALERT MANAGER ENTERPRISE</div><h1>Events</h1><p>Browse AME-managed events and send one to the investigation dashboard.</p></div>
+      <div><div className="eyebrow">ALERT MANAGER ENTERPRISE</div><h1>Events</h1><p>Browse AME-managed events and start an investigation directly from any event.</p></div>
       <div className="page-heading-actions">
         <span className="cache-status">
           {cached&&cachedAt?"Cached "+new Date(cachedAt).toLocaleString():cachedAt?"Updated "+new Date(cachedAt).toLocaleString():"Not cached"}
