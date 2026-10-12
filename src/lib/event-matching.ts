@@ -4,6 +4,12 @@ export type EventMatchInput={
   eventContext:Record<string,unknown>|null;
 };
 
+const OPEN_AME_EVENT_STATUSES=new Set(["new","open","assigned","in_progress"]);
+
+export function isOpenAmeEventStatus(status:unknown):boolean{
+  return OPEN_AME_EVENT_STATUSES.has(String(status??"").trim().toLowerCase());
+}
+
 const VOLATILE_EVENT_KEY=/^(?:id|event[_-]?id|eventid|source[_-]?event[_-]?id|_key|created|created[_-]?at|createdat|first[_-]?seen|firstseen|last[_-]?seen|lastseen|most[_-]?recent|updated|updated[_-]?at|updatedat|timestamp|time|_time|date|start[_-]?time|end[_-]?time|event[_-]?time|alert[_-]?time|time[_-]?(?:generated|created|seen)|query[_-]?(?:earliest|latest)(?:[_-]?time)?|earliest[_-]?time|latest[_-]?time|detected[_-]?at|submitted[_-]?at)$/i;
 
 function stableEventValue(value:unknown,key?:string):unknown{
@@ -72,6 +78,37 @@ export function eventDestinationIp(context:Record<string,unknown>|null):string|n
   if(!context) return null;
   const destination=String(notableFields(context)?.dstip??"").trim().toLowerCase();
   return destination||null;
+}
+
+export function matchesEventReviewScope(
+  source:{title:string;eventContext:Record<string,unknown>|null},
+  candidate:{title:string;eventContext:Record<string,unknown>|null},
+):boolean{
+  const sameTitle=source.title.trim().toLowerCase()===candidate.title.trim().toLowerCase();
+  const sourceDestination=eventDestinationIp(source.eventContext);
+  const sameDestination=Boolean(sourceDestination&&eventDestinationIp(candidate.eventContext)===sourceDestination);
+  return sameTitle||sameDestination;
+}
+
+export function stillOpenSimilarAmeEventIds(
+  source:EventMatchInput&{sourceEventId?:string|null},
+  candidates:Array<{
+    id:string;
+    title:string;
+    status?:string;
+    localClosureClassification?:string;
+    eventContext:Record<string,unknown>;
+  }>,
+  requestedIds:string[],
+):string[]{
+  if(source.kind!=="alert"||!source.eventContext) return [];
+  const requested=new Set(requestedIds);
+  return candidates
+    .filter((candidate)=>requested.has(candidate.id))
+    .filter((candidate)=>candidate.id!==source.sourceEventId)
+    .filter((candidate)=>!candidate.localClosureClassification&&isOpenAmeEventStatus(candidate.status))
+    .filter((candidate)=>matchesEventReviewScope(source,candidate))
+    .map((candidate)=>candidate.id);
 }
 
 const SIMILARITY_SIGNAL_FIELDS:{label:string;keys:string[]}[]=[

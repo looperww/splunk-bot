@@ -10,6 +10,9 @@ import {
   eventMatchFingerprint,
   eventSimilarityHighlights,
   eventSourceIp,
+  isOpenAmeEventStatus,
+  matchesEventReviewScope,
+  stillOpenSimilarAmeEventIds,
 } from "@/lib/event-matching";
 import type {
   AmeEvent,
@@ -41,6 +44,26 @@ export function eventContextFromAmeEvent(event:AmeEvent):Record<string,unknown>{
     owner:event.owner??"",
     raw:event.raw,
   };
+}
+
+/**
+ * Revalidate a user's selected suggestion against the current local event
+ * cache. Similarity is assessed when suggestions are generated; committing a
+ * decision must not depend on a second, potentially different AI response.
+ */
+export async function findStillOpenSimilarEventIds(
+  source:InvestigationRecord,
+  requestedIds:string[],
+):Promise<string[]>{
+  if(source.kind!=="alert"||!source.connectionId||!source.eventContext) return [];
+  const requested=new Set(requestedIds);
+  if(!requested.size) return [];
+  const cached=await getCachedAmeEvents(source.connectionId);
+  return stillOpenSimilarAmeEventIds(
+    source,
+    cached.events.map((event)=>({...event,eventContext:eventContextFromAmeEvent(event)})),
+    requestedIds,
+  );
 }
 
 export async function reviewPriorClosedAlerts(input:{
@@ -359,17 +382,17 @@ export async function reviewOpenCachedEvents(
   if(source.kind!=="alert"||!source.connectionId||!source.eventContext) return {matches:[]};
   const cached=await getCachedAmeEvents(source.connectionId);
   const requested=restrictIds?new Set(restrictIds):null;
-  const sourceDestination=eventDestinationIp(source.eventContext);
   const sourceFingerprint=eventMatchFingerprint(source);
   const groups=new Map<string,EventGroup>();
   for(const event of cached.events){
     if(event.id===source.sourceEventId||event.localClosureClassification) continue;
-    if(!["new","open","assigned","in_progress"].includes(String(event.status??"").toLowerCase())) continue;
+    if(!isOpenAmeEventStatus(event.status)) continue;
     if(requested&&!requested.has(event.id)) continue;
     const context=eventContextFromAmeEvent(event);
-    const sameTitle=event.title.trim().toLowerCase()===source.title.trim().toLowerCase();
-    const sameDestination=Boolean(sourceDestination&&eventDestinationIp(context)===sourceDestination);
-    if(!sameTitle&&!sameDestination) continue;
+    if(!matchesEventReviewScope(
+      {title:source.title,eventContext:source.eventContext},
+      {title:event.title,eventContext:context},
+    )) continue;
     const fingerprint=eventMatchFingerprint({kind:"alert",title:event.title,eventContext:context});
     const exact=Boolean(fingerprint&&fingerprint===sourceFingerprint);
     const key=fingerprint??event.id;
