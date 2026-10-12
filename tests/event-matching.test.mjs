@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { compareAlertEvents, eventDestinationIp, eventMatchFingerprint, relatedIocFingerprint } from "../src/lib/event-matching.ts";
+import { compareAlertEvents, eventDestinationIp, eventMatchFingerprint, relatedIocFingerprint, stillOpenSimilarAmeEventIds } from "../src/lib/event-matching.ts";
 
 function alertInput({id,created,firstSeen,mostRecent,eventTime,srcip="10.63.133.46",dstip="188.114.96.4"}){
   return {
@@ -64,4 +64,25 @@ test("keeps exact matches eligible for decision reuse",()=>{
   const newAlert=alertInput({id:"event-b",created:"2026-10-07T19:30:25.744Z",firstSeen:"1791401425",mostRecent:"1791401425",eventTime:"1791401097"});
 
   assert.equal(compareAlertEvents(newAlert,closed),"exact");
+});
+
+test("keeps explicitly selected similar alerts valid without rerunning AI",()=>{
+  const source=alertInput({id:"closed-source",created:"2026-10-07T18:00:27.011Z",firstSeen:"1791392827",mostRecent:"1791392827",eventTime:"1791395283"});
+  const related=alertInput({id:"related-open",created:"2026-10-07T19:30:25.744Z",firstSeen:"1791401425",mostRecent:"1791401425",eventTime:"1791401097",srcip:"10.63.133.44"});
+  const closed=alertInput({id:"already-closed",created:"2026-10-07T19:30:25.744Z",firstSeen:"1791401425",mostRecent:"1791401425",eventTime:"1791401097"});
+  const candidates=[
+    {id:"related-open",title:related.title,status:"NEW",eventContext:related.eventContext},
+    {id:"already-closed",title:closed.title,status:"closed",eventContext:closed.eventContext},
+    {id:"locally-closed",title:related.title,status:"new",localClosureClassification:"false_positive",eventContext:related.eventContext},
+    {id:"unrelated-open",title:"Unrelated event",status:"new",eventContext:{...related.eventContext,raw:{...related.eventContext.raw,most_recent_notable_fields:JSON.stringify({srcip:"10.63.133.44",dstip:"203.0.113.8",IOC_DESC:"OTHER"})}}},
+    {id:"closed-source",title:source.title,status:"new",eventContext:source.eventContext},
+  ];
+
+  const validIds=stillOpenSimilarAmeEventIds(
+    {...source,sourceEventId:"closed-source"},
+    candidates,
+    ["related-open","already-closed","locally-closed","unrelated-open","closed-source"],
+  );
+
+  assert.deepEqual(validIds,["related-open"]);
 });

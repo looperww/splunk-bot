@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
 import { closeAmeEventsLocally } from "@/lib/ame-event-cache";
-import { reviewOpenCachedEvents } from "@/lib/event-similarity";
+import { findStillOpenSimilarEventIds } from "@/lib/event-similarity";
 import {
   closeInvestigationMatches,
   findMatchingOpenInvestigations,
@@ -46,14 +46,15 @@ export async function POST(request:NextRequest){
     if(source.kind!=="alert"||source.status!=="closed"||source.closureClassification!==body.classification||source.closureReason!==reason){
       return NextResponse.json({error:"The reviewed decision no longer matches the closed source investigation."},{status:409});
     }
-    const [matches,eventReview]=await Promise.all([
+    const [matches,stillOpenSimilarEventIds]=await Promise.all([
       findMatchingOpenInvestigations(source),
-      reviewOpenCachedEvents(source,requestedEventIds),
+      findStillOpenSimilarEventIds(source,requestedEventIds),
     ]);
     const allowedInvestigationIds=new Set(matches.map((match)=>match.id));
-    // The analyst explicitly selects alerts in the review dialog. AI's canClose
-    // flag is a recommendation, not an authorization gate for that choice.
-    const allowedEventIds=new Set(eventReview.matches.map((match)=>match.eventId));
+    // Similarity was already reviewed before the suggestion was shown. Once
+    // the analyst selects it, validate only that it is still open and in scope;
+    // an AI re-check here can disagree or fail and incorrectly block closure.
+    const allowedEventIds=new Set(stillOpenSimilarEventIds);
     const investigationIds=requestedInvestigationIds.filter((id)=>allowedInvestigationIds.has(id));
     const eventIds=requestedEventIds.filter((id)=>allowedEventIds.has(id));
     if(investigationIds.length!==requestedInvestigationIds.length||eventIds.length!==requestedEventIds.length){
