@@ -275,6 +275,7 @@ export default function InvestigatorWorkspace(){
   const activeInvestigationIdRef=useRef<string|null>(null);
   const dialogOpenRef=useRef(false);
   const backgroundNoticeRef=useRef("");
+  const autoInvestigateEventRef=useRef<string|null>(null);
   activeInvestigationIdRef.current=activeInvestigation?.id??null;
   dialogOpenRef.current=dialogOpen;
   const sending=activeInvestigation!==null&&sendingInvestigationIds.includes(activeInvestigation.id);
@@ -664,6 +665,21 @@ export default function InvestigatorWorkspace(){
       setPriorCloseLoading(false);
     }
   }
+
+  useEffect(()=>{
+    const requestedEventId=new URLSearchParams(window.location.search).get("investigateEvent");
+    if(!requestedEventId){
+      autoInvestigateEventRef.current=null;
+      return;
+    }
+    if(!selectedEvent||selectedEvent.id!==requestedEventId||!selectedConnection||autoInvestigateEventRef.current===requestedEventId) return;
+
+    autoInvestigateEventRef.current=requestedEventId;
+    const url=new URL(window.location.href);
+    url.searchParams.delete("investigateEvent");
+    window.history.replaceState(window.history.state,"",url.pathname+url.search+url.hash);
+    void investigateEvent();
+  },[selectedEvent?.id,selectedConnection?.id]);
 
   async function investigateAlertDespiteHistory(){
     if(!pendingAlert||priorCloseLoading||reusingPriorClose) return;
