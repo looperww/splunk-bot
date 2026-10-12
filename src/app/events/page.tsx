@@ -73,6 +73,7 @@ export default function EventsPage(){
   const [search,setSearch]=useState("");
   const [page,setPage]=useState(0);
   const [expandedId,setExpandedId]=useState<string|null>(null);
+  const [expandedGroups,setExpandedGroups]=useState<Set<string>>(()=>new Set());
   const [cached,setCached]=useState(false);
   const [cachedAt,setCachedAt]=useState<string|null>(null);
   const [sort,setSort]=useState<EventSort>("created-desc");
@@ -197,9 +198,20 @@ export default function EventsPage(){
       return difference||left.index-right.index;
     }).map(({event})=>event);
   },[filtered,sort]);
+  const groups=useMemo(()=>{
+    const byTitle=new Map<string,{key:string;title:string;events:AmeEvent[]}>();
+    for(const event of sorted){
+      const title=event.title.trim().replace(/\s+/g," ")||"Untitled event";
+      const key=title.toLowerCase();
+      const group=byTitle.get(key);
+      if(group) group.events.push(event);
+      else byTitle.set(key,{key,title,events:[event]});
+    }
+    return [...byTitle.values()];
+  },[sorted]);
   const pageSize=50;
-  const pageCount=Math.max(1,Math.ceil(sorted.length/pageSize));
-  const visible=sorted.slice(page*pageSize,(page+1)*pageSize);
+  const pageCount=Math.max(1,Math.ceil(groups.length/pageSize));
+  const visibleGroups=groups.slice(page*pageSize,(page+1)*pageSize);
 
   useEffect(()=>{setPage(0);},[search,sort,selectedConnection,showClosedEvents]);
 
@@ -210,6 +222,15 @@ export default function EventsPage(){
 
   function toggleEvent(id:string){
     setExpandedId((current)=>current===id?null:id);
+  }
+
+  function toggleGroup(key:string){
+    setExpandedGroups((current)=>{
+      const next=new Set(current);
+      if(next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   return <main className="page-shell">
@@ -237,7 +258,7 @@ export default function EventsPage(){
             <option value="60">1 hour</option>
           </select>
         </label>
-        <span className="count">{filtered.length} shown{!showClosedEvents&&events.some(isClosedEvent)?` · ${events.filter(isClosedEvent).length} closed hidden`:""}</span>
+        <span className="count">{filtered.length} events shown in {groups.length} groups{!showClosedEvents&&events.some(isClosedEvent)?` · ${events.filter(isClosedEvent).length} closed hidden`:""}</span>
       </div>
     </header>
     {!selectedConnection&&<div className="empty-state panel">Configure or select a Splunk connection in Settings.</div>}
@@ -255,45 +276,76 @@ export default function EventsPage(){
         <input type="checkbox" checked={showClosedEvents} onChange={(event)=>setShowClosedEvents(event.target.checked)}/>
         <span>Show closed events</span>
       </label>
-      <span>Page {page+1} of {pageCount}</span>
+      <span>Group page {page+1} of {pageCount}</span>
       <button className="secondary-button" disabled={page===0} onClick={()=>setPage((value)=>Math.max(0,value-1))}>Previous</button>
       <button className="secondary-button" disabled={page+1>=pageCount} onClick={()=>setPage((value)=>Math.min(pageCount-1,value+1))}>Next</button>
     </div>
     <div className="table-panel panel">
       <div className="table-header event-table-header" aria-hidden="true">
-        <span>Event</span><span>Status</span><span>Urgency</span><span>Created</span><span>Actions</span>
+        <span>Event group</span><span>Events</span><span>Highest urgency</span><span>Latest event</span><span>Expand</span>
       </div>
-      {visible.map((event)=>{
-        const expanded=expandedId===event.id;
-        return <div className={"event-row-group "+(expanded?"expanded":"")} key={event.id}>
-          <div
-            className={"table-row "+(selectedEvent?.id===event.id?"selected":"")}
-            onClick={()=>toggleEvent(event.id)}
+      {visibleGroups.map((group)=>{
+        const expanded=expandedGroups.has(group.key);
+        const highestUrgencyEvent=group.events.reduce<AmeEvent|null>((highest,event)=>{
+          const rank=urgencyRank(eventUrgencyLabel(event));
+          const highestRank=highest?urgencyRank(eventUrgencyLabel(highest)):null;
+          return rank!==null&&(highestRank===null||rank>highestRank)?event:highest;
+        },null);
+        const latestEvent=group.events.reduce<AmeEvent|null>((latest,event)=>{
+          const created=timestampMillis(event.created);
+          const latestCreated=latest?timestampMillis(latest.created):null;
+          return created!==null&&(latestCreated===null||created>latestCreated)?event:latest;
+        },null)??group.events[0];
+        const detailsId="event-group-"+encodeURIComponent(group.key);
+        return <div className={"event-row-group event-title-group "+(expanded?"expanded":"")} key={group.key}>
+          <button
+            className="event-group-bar"
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={detailsId}
+            onClick={()=>toggleGroup(group.key)}
           >
-            <div className="table-main"><strong>{event.title}</strong><small>{event.id}</small></div>
-            <span>{eventStatusLabel(event)}</span>
-            <span className={"severity-badge "+urgencyTone(eventUrgencyLabel(event))}>{eventUrgencyLabel(event)??"Unknown"}</span>
-            <time dateTime={event.created} title={event.created}>{formatTimestamp(event.created)}</time>
-            <div className="event-row-actions">
-              <button className="secondary-button" aria-expanded={expanded} onClick={(clickEvent)=>{clickEvent.stopPropagation();toggleEvent(event.id);}}>{expanded?"Hide details":"Details"}</button>
-              <button className="secondary-button" onClick={(clickEvent)=>{clickEvent.stopPropagation();investigate(event);}}>Investigate</button>
-            </div>
+            <span className="event-group-title">{group.title}</span>
+            <span className="event-group-count">{group.events.length} event{group.events.length===1?"":"s"}</span>
+            <span className={"severity-badge "+urgencyTone(highestUrgencyEvent?eventUrgencyLabel(highestUrgencyEvent):undefined)}>{highestUrgencyEvent?eventUrgencyLabel(highestUrgencyEvent):"Unknown"}</span>
+            <time dateTime={latestEvent.created} title={latestEvent.created}>{formatTimestamp(latestEvent.created)}</time>
+            <span className="event-group-toggle">{expanded?"Collapse":"Expand"}</span>
+          </button>
+          <div className="event-group-items" id={detailsId} hidden={!expanded}>
+            {expanded&&group.events.map((event)=>{
+              const eventExpanded=expandedId===event.id;
+              return <div className={"event-row-group "+(eventExpanded?"expanded":"")} key={event.id}>
+                <div
+                  className={"table-row "+(selectedEvent?.id===event.id?"selected":"")}
+                  onClick={()=>toggleEvent(event.id)}
+                >
+                  <div className="table-main"><strong>{event.title}</strong><small>{event.id}</small></div>
+                  <span>{eventStatusLabel(event)}</span>
+                  <span className={"severity-badge "+urgencyTone(eventUrgencyLabel(event))}>{eventUrgencyLabel(event)??"Unknown"}</span>
+                  <time dateTime={event.created} title={event.created}>{formatTimestamp(event.created)}</time>
+                  <div className="event-row-actions">
+                    <button className="secondary-button" aria-expanded={eventExpanded} onClick={(clickEvent)=>{clickEvent.stopPropagation();toggleEvent(event.id);}}>{eventExpanded?"Hide details":"Details"}</button>
+                    <button className="secondary-button" onClick={(clickEvent)=>{clickEvent.stopPropagation();investigate(event);}}>Investigate</button>
+                  </div>
+                </div>
+                {eventExpanded&&<div className="event-expanded-details">
+                  <div className="event-summary-grid">
+                    <div><span className="label">Event ID</span><code>{event.id}</code></div>
+                    <div><span className="label">Status</span><span>{eventStatusLabel(event)}</span></div>
+                    <div><span className="label">Final severity</span><span>{eventUrgencyLabel(event)??"—"}</span></div>
+                    <div><span className="label">Created</span><time dateTime={event.created} title={event.created}>{formatTimestamp(event.created)}</time></div>
+                    <div><span className="label">Owner</span><span>{event.owner??"—"}</span></div>
+                  </div>
+                  {event.localClosedAt&&<div className="event-raw-heading"><span className="label">Closed locally</span><span>{event.localClosureReason??"No reason recorded."}</span></div>}
+                  <div className="event-raw-heading"><span className="label">All event details</span><span>Color-coded by field type</span></div>
+                  <DetailFields data={event.raw}/>
+                </div>}
+              </div>;
+            })}
           </div>
-          {expanded&&<div className="event-expanded-details">
-            <div className="event-summary-grid">
-              <div><span className="label">Event ID</span><code>{event.id}</code></div>
-              <div><span className="label">Status</span><span>{eventStatusLabel(event)}</span></div>
-              <div><span className="label">Final severity</span><span>{eventUrgencyLabel(event)??"—"}</span></div>
-              <div><span className="label">Created</span><time dateTime={event.created} title={event.created}>{formatTimestamp(event.created)}</time></div>
-              <div><span className="label">Owner</span><span>{event.owner??"—"}</span></div>
-            </div>
-            {event.localClosedAt&&<div className="event-raw-heading"><span className="label">Closed locally</span><span>{event.localClosureReason??"No reason recorded."}</span></div>}
-            <div className="event-raw-heading"><span className="label">All event details</span><span>Color-coded by field type</span></div>
-            <DetailFields data={event.raw}/>
-          </div>}
         </div>;
       })}
-      {!loading&&selectedConnection&&!visible.length&&!error&&<div className="empty">No AME events match the current search.</div>}
+      {!loading&&selectedConnection&&!visibleGroups.length&&!error&&<div className="empty">No AME events match the current search.</div>}
     </div>
   </main>;
 }
