@@ -1581,9 +1581,9 @@ export default function InvestigatorWorkspace(){
         {dialogLoading||!activeInvestigation?<div className="empty">Loading investigation…</div>:<>
           <header className="investigation-dialog-header">
             <div>
-              <div className="eyebrow">{activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID?"GENERAL CHAT":activeInvestigation.kind==="alert"?"ALERT INVESTIGATION":"INCIDENT INVESTIGATION"}</div>
+              <div className="eyebrow">{activeInvestigation.kind==="chat"?"GENERAL CHAT":activeInvestigation.kind==="alert"?"ALERT INVESTIGATION":"INCIDENT INVESTIGATION"}</div>
               <h2 id="investigation-dialog-title">{activeInvestigation.title}</h2>
-              <p>{activeInvestigation.description||((activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)?"Open-ended troubleshooting conversation. Share the problem and we will work through it together.":"Continue the conversation to establish scope, search evidence, and produce an incident report.")}</p>
+              <p>{activeInvestigation.description||(activeInvestigation.kind==="chat"?"Open-ended troubleshooting conversation. Share the problem and we will work through it together.":"Continue the conversation to establish scope, search evidence, and produce an incident report.")}</p>
               <div className="investigation-chat-settings" aria-label="Chat AI settings">
                 <label>
                   <span>Agent</span>
@@ -1648,13 +1648,13 @@ export default function InvestigatorWorkspace(){
               <button className="icon-button" type="button" onClick={closeDialogs} aria-label={sending?"Close window; investigation continues in background":"Close"} title={sending?"Close window; investigation continues in background":"Close"}>×</button>
             </div>
           </header>
-          <div className={"investigation-dialog-body"+((activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)?" general-chat-body":"")}>
+          <div className={"investigation-dialog-body"+(activeInvestigation.kind==="chat"?" general-chat-body":"")}>
             <section className="investigation-chat-column">
               <div className="investigation-chat-heading">
-                <div><div className="eyebrow">CONVERSATION</div><h3>{activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID?"General chat":"Investigation chat"}</h3></div>
+                <div><div className="eyebrow">CONVERSATION</div><h3>{activeInvestigation.kind==="chat"?"General chat":"Investigation chat"}</h3></div>
                 <span className="count">{activeInvestigation.messages.length}</span>
               </div>
-              {(activeInvestigation.kind==="chat"||activeInvestigation.agentId===GENERAL_CHAT_AGENT_ID)&&<p className="general-chat-note">General Chat can inspect app documentation and safe database records, test the Splunk API connection, and run read-only searches. It will not expose credentials or change systems.</p>}
+              {activeInvestigation.kind==="chat"&&<p className="general-chat-note">General Chat can inspect app documentation and safe database records, test the Splunk API connection, and run read-only searches. It will not expose credentials or change systems.</p>}
               <div className="investigation-chat-messages">
                 {activeInvestigation.messages.map((message,index)=><div key={message.id??String(index)} className={"message "+message.role}>
                   <div className="message-role">{message.role==="assistant"?(activeChatAgent?.name??"SPLUNK BOT"):"YOU"}</div>
@@ -1678,7 +1678,7 @@ export default function InvestigatorWorkspace(){
                 <div className="composer-footer"><span>Enter to send · Shift+Enter for a new line</span><button className="primary-button" type="button" onClick={()=>void sendMessage()} disabled={sending||activeInvestigation.status!=="ongoing"||(!selectedConnection&&activeInvestigation.kind!=="chat"&&activeInvestigation.agentId!==GENERAL_CHAT_AGENT_ID)}>{sending?"Working…":"Send"}</button></div>
               </div>
             </section>
-            {activeInvestigation.kind!=="chat"&&activeInvestigation.agentId!==GENERAL_CHAT_AGENT_ID&&<aside className="investigation-report-column">
+            {activeInvestigation.kind!=="chat"&&<aside className="investigation-report-column">
               <div className="panel-heading"><div><div className="eyebrow">REPORT & EVIDENCE</div><h3>Final incident report</h3></div><span className="count">{activeInvestigation.searches.length}</span></div>
               {activeInvestigation.budget?.searchAttempts!==undefined&&<div className="search-budget-status" role="status">
                 <strong>This turn · {activeInvestigation.budget.searchesUsed}/{activeInvestigation.budget.searchLimit} searches completed</strong>
