@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
 import { closeAmeEventsLocally, getCachedAmeEvent } from "@/lib/ame-event-cache";
+import { closeAmeEventsInSplunk } from "@/lib/ame-writeback";
 import { eventContextFromAmeEvent, reviewOpenCachedEvents, reviewPriorClosedAlerts } from "@/lib/event-similarity";
 import {
   createInvestigation,
@@ -63,6 +64,7 @@ export async function POST(request:NextRequest){
       closureClassification:previous.closureClassification,
       closureReason:previous.closureReason,
     });
+    let ameSync:{syncedEventIds:string[];failures:Array<{eventId:string;message:string}>}|null=null;
     if(investigation.sourceEventId){
       await closeAmeEventsLocally({
         connectionId:investigation.connectionId,
@@ -70,10 +72,15 @@ export async function POST(request:NextRequest){
         classification:previous.closureClassification,
         reason:previous.closureReason,
       });
+      ameSync=await closeAmeEventsInSplunk({
+        connectionId:investigation.connectionId,
+        eventIds:[investigation.sourceEventId],
+        reason:previous.closureReason,
+      });
     }
     const matchingInvestigations=await findMatchingOpenInvestigations(investigation);
     const review=await reviewOpenCachedEvents(investigation);
-    return NextResponse.json({investigation,previous,matchingInvestigations,matchingEvents:review.matches,reviewWarning:review.warning});
+    return NextResponse.json({investigation,previous,matchingInvestigations,matchingEvents:review.matches,reviewWarning:review.warning,ameSync});
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to reuse the previous alert decision."},

@@ -66,6 +66,26 @@ type ChatModel={
   ownedBy?:string;
 };
 
+type AmeWritebackResult={
+  syncedEventIds:string[];
+  failures:Array<{eventId:string;message:string}>;
+};
+
+function ameWritebackNotice(result:AmeWritebackResult|undefined):string{
+  if(!result) return "";
+  if(result.failures.length){
+    const first=result.failures[0]?.message;
+    return "AME sync failed for "+result.failures.length+" event(s). The app closure is saved locally."+
+      (first?" Details: "+first:"");
+  }
+  if(result.syncedEventIds.length){
+    return result.syncedEventIds.length===1
+      ?"The event was also closed in Splunk AME."
+      :result.syncedEventIds.length+" events were also closed in Splunk AME.";
+  }
+  return "";
+}
+
 function formatDate(value:string|null|undefined){
   if(!value) return "Unknown time";
   const date=new Date(value);
@@ -711,13 +731,13 @@ export default function InvestigatorWorkspace(){
           eventContext:eventContext(pendingAlert),
         }),
       });
-      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];reviewWarning?:string;error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];reviewWarning?:string;ameSync?:AmeWritebackResult;error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to reuse the previous decision.");
       setInvestigations((current)=>[data.investigation!,...current.filter((item)=>item.id!==data.investigation!.id)]);
       setPriorCloseOpen(false);
       setPendingAlert(null);
       setPriorCloseMatches([]);
-      setNotice(`Closed this alert as ${decisionLabel(previous.closureClassification)} using the previous analyst decision.${data.reviewWarning?" "+data.reviewWarning:""}`);
+      setNotice([`Closed this alert as ${decisionLabel(previous.closureClassification)} using the previous analyst decision.`,ameWritebackNotice(data.ameSync),data.reviewWarning].filter(Boolean).join(" "));
       window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
       const notification=createClosureNotification({
         source:data.investigation,
@@ -1201,7 +1221,7 @@ export default function InvestigatorWorkspace(){
           }),
         },
       );
-      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];reviewWarning?:string;error?:string};
+      const data=await response.json() as {investigation?:InvestigationRecord;matchingInvestigations?:InvestigationMatch[];matchingEvents?:AmeEventClosureMatch[];reviewWarning?:string;ameSync?:AmeWritebackResult;error?:string};
       if(!response.ok||!data.investigation) throw new Error(data.error??"Failed to save the learning pattern.");
       setActiveInvestigation(data.investigation);
       setInvestigations((current)=>current.map((item)=>item.id===data.investigation!.id?data.investigation!:item));
@@ -1209,7 +1229,7 @@ export default function InvestigatorWorkspace(){
       setClosureReviewOpen(false);
       setLearningReviewOpen(false);
       setLearningDraft(null);
-      if(data.reviewWarning) setNotice(data.reviewWarning);
+      setNotice([ameWritebackNotice(data.ameSync),data.reviewWarning].filter(Boolean).join(" "));
       window.dispatchEvent(new CustomEvent("splunk-bot-ame-events-updated"));
       const notification=createClosureNotification({
         source:data.investigation,
@@ -1293,7 +1313,7 @@ export default function InvestigatorWorkspace(){
           reason:bulkCloseNotification.reason,
         }),
       });
-      const data=await response.json() as {closedIds?:string[];closedEventIds?:string[];error?:string};
+      const data=await response.json() as {closedIds?:string[];closedEventIds?:string[];ameSync?:AmeWritebackResult;error?:string};
       if(response.status===409){
         await showBulkCloseNotification(bulkCloseNotification);
         return;
@@ -1314,6 +1334,8 @@ export default function InvestigatorWorkspace(){
       }
       setBulkCloseOpen(false);
       setBulkCloseNotification(null);
+      const syncNotice=ameWritebackNotice(data.ameSync);
+      if(syncNotice) setNotice(syncNotice);
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to close matching alerts.");
     }finally{

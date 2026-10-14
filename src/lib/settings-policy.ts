@@ -1,6 +1,7 @@
 export const DEFAULT_SPLUNK_REQUEST_TIMEOUT_SECONDS=30;
 export const MIN_SPLUNK_REQUEST_TIMEOUT_SECONDS=10;
 export const MAX_SPLUNK_REQUEST_TIMEOUT_SECONDS=180;
+export const DEFAULT_AME_CLOSED_STATUS_ID="6807bc4be1ec0a44ad04f7e2";
 
 export const AGENT_EDITABLE_APP_SETTINGS=[
   "splunk_request_timeout_seconds",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
 import { closeAmeEventsLocally } from "@/lib/ame-event-cache";
+import { closeAmeEventsInSplunk } from "@/lib/ame-writeback";
 import { findStillOpenSimilarEventIds } from "@/lib/event-similarity";
 import {
   closeInvestigationMatches,
@@ -85,7 +86,14 @@ export async function POST(request:NextRequest){
           })
         :Promise.resolve([]),
     ]);
-    return NextResponse.json({closedIds,closedEventIds,count:closedIds.length+closedEventIds.length});
+    const ameSync=closedEventIds.length
+      ?await closeAmeEventsInSplunk({
+          connectionId:source.connectionId,
+          eventIds:closedEventIds,
+          reason,
+        })
+      :{syncedEventIds:[],failures:[]};
+    return NextResponse.json({closedIds,closedEventIds,count:closedIds.length+closedEventIds.length,ameSync});
   }catch(error){
     return NextResponse.json(
       {error:error instanceof Error?error.message:"Failed to close matching investigations."},

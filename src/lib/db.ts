@@ -209,8 +209,12 @@ async function createSchema():Promise<void>{
         id TEXT PRIMARY KEY CHECK (id='default'),
         splunk_request_timeout_seconds INTEGER NOT NULL DEFAULT 30
           CHECK (splunk_request_timeout_seconds BETWEEN 10 AND 180),
+        ame_closed_status_id TEXT NOT NULL DEFAULT '6807bc4be1ec0a44ad04f7e2',
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
+
+      ALTER TABLE app_settings
+        ADD COLUMN IF NOT EXISTS ame_closed_status_id TEXT NOT NULL DEFAULT '6807bc4be1ec0a44ad04f7e2';
 
       INSERT INTO app_settings(id,splunk_request_timeout_seconds)
       VALUES('default',30)

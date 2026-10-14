@@ -2,18 +2,20 @@
 
 import { useEffect, useState } from "react";
 import {
+  DEFAULT_AME_CLOSED_STATUS_ID,
   DEFAULT_SPLUNK_REQUEST_TIMEOUT_SECONDS,
   MAX_SPLUNK_REQUEST_TIMEOUT_SECONDS,
   MIN_SPLUNK_REQUEST_TIMEOUT_SECONDS,
 } from "@/lib/settings-policy";
 
 type SettingsResponse={
-  settings?:{splunkRequestTimeoutSeconds:number};
+  settings?:{splunkRequestTimeoutSeconds:number;ameClosedStatusId:string};
   error?:string;
 };
 
 export default function AppRuntimeSettingsPanel(){
   const [timeoutSeconds,setTimeoutSeconds]=useState(DEFAULT_SPLUNK_REQUEST_TIMEOUT_SECONDS);
+  const [ameClosedStatusId,setAmeClosedStatusId]=useState(DEFAULT_AME_CLOSED_STATUS_ID);
   const [loaded,setLoaded]=useState(false);
   const [busy,setBusy]=useState(false);
   const [status,setStatus]=useState("");
@@ -25,6 +27,7 @@ export default function AppRuntimeSettingsPanel(){
         const data=await response.json() as SettingsResponse;
         if(!response.ok||!data.settings) throw new Error(data.error??"Failed to load application settings.");
         setTimeoutSeconds(data.settings.splunkRequestTimeoutSeconds);
+        setAmeClosedStatusId(data.settings.ameClosedStatusId);
         setLoaded(true);
       })
       .catch((reason)=>setError(reason instanceof Error?reason.message:"Failed to load application settings."));
@@ -33,6 +36,7 @@ export default function AppRuntimeSettingsPanel(){
   const valid=Number.isInteger(timeoutSeconds)&&
     timeoutSeconds>=MIN_SPLUNK_REQUEST_TIMEOUT_SECONDS&&
     timeoutSeconds<=MAX_SPLUNK_REQUEST_TIMEOUT_SECONDS;
+  const validAmeStatusId=/^[a-zA-Z0-9_-]{1,128}$/.test(ameClosedStatusId.trim());
 
   async function save(){
     setBusy(true);
@@ -42,12 +46,16 @@ export default function AppRuntimeSettingsPanel(){
       const response=await fetch("/api/settings/app",{
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({splunkRequestTimeoutSeconds:timeoutSeconds}),
+        body:JSON.stringify({
+          splunkRequestTimeoutSeconds:timeoutSeconds,
+          ameClosedStatusId:ameClosedStatusId.trim(),
+        }),
       });
       const data=await response.json() as SettingsResponse;
       if(!response.ok||!data.settings) throw new Error(data.error??"Failed to save application settings.");
       setTimeoutSeconds(data.settings.splunkRequestTimeoutSeconds);
-      setStatus("Splunk request timeout saved.");
+      setAmeClosedStatusId(data.settings.ameClosedStatusId);
+      setStatus("Application settings saved.");
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to save application settings.");
     }finally{setBusy(false);}
@@ -85,9 +93,26 @@ export default function AppRuntimeSettingsPanel(){
     <div className="settings-section-description">
       General Chat can change the timeout, AI model, and investigation search limit when you explicitly ask. API keys, passwords, Splunk connection details, and authentication settings are not editable by the agent.
     </div>
+    <div className="chat-budget-setting">
+      <div>
+        <strong>AME status used when closing an event</strong>
+        <p>The app uses this AME status identifier when it syncs a closure to Splunk. The default is the Closed status from your captured AME response.</p>
+      </div>
+      <label>
+        <span className="label">Closed status identifier</span>
+        <input
+          value={ameClosedStatusId}
+          onChange={(event)=>setAmeClosedStatusId(event.target.value)}
+          aria-invalid={!validAmeStatusId}
+          aria-describedby="ame-status-id-help"
+          disabled={!loaded||busy}
+        />
+        <small id="ame-status-id-help">Saved in the database. Leave unchanged unless your AME status options are different.</small>
+      </label>
+    </div>
     <div className="connection-actions">
-      <button className="primary-button" type="button" disabled={!loaded||busy||!valid} onClick={()=>void save()}>
-        {busy?"Saving…":"Save timeout"}
+      <button className="primary-button" type="button" disabled={!loaded||busy||!valid||!validAmeStatusId} onClick={()=>void save()}>
+        {busy?"Saving…":"Save settings"}
       </button>
     </div>
     {status&&<div className="status-box">{status}</div>}
