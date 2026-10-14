@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   MAX_SPLUNK_REQUEST_TIMEOUT_SECONDS,
   MIN_SPLUNK_REQUEST_TIMEOUT_SECONDS,
+  DEFAULT_AME_IN_PROGRESS_STATUS_ID,
+  normalizeAmeStatusId,
   normalizeAppModelId,
   normalizeSplunkRequestTimeoutSeconds,
   requestedAppSettingChanges,
@@ -21,6 +23,12 @@ test("validates model identifiers without accepting control characters",()=>{
   assert.equal(normalizeAppModelId(" gpt-6-luna "),"gpt-6-luna");
   assert.equal(normalizeAppModelId("invalid\nmodel"),null);
   assert.equal(normalizeAppModelId("  "),null);
+});
+
+test("validates AME transition status identifiers",()=>{
+  assert.equal(DEFAULT_AME_IN_PROGRESS_STATUS_ID,"6807bc4be1ec0a44ad04f7e4");
+  assert.equal(normalizeAmeStatusId(" 6807bc4be1ec0a44ad04f7e4 "),DEFAULT_AME_IN_PROGRESS_STATUS_ID);
+  assert.equal(normalizeAmeStatusId("status id with spaces"),null);
 });
 
 test("grants setting-write capability only for direct requests about supported settings",()=>{

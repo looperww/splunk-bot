@@ -1,24 +1,28 @@
 import { ensureSchema, query } from "@/lib/db";
 import {
   DEFAULT_AME_CLOSED_STATUS_ID,
+  DEFAULT_AME_IN_PROGRESS_STATUS_ID,
   DEFAULT_SPLUNK_REQUEST_TIMEOUT_SECONDS,
+  normalizeAmeStatusId,
   normalizeSplunkRequestTimeoutSeconds,
 } from "@/lib/settings-policy";
 
 export type AppSettings={
   splunkRequestTimeoutSeconds:number;
   ameClosedStatusId:string;
+  ameInProgressStatusId:string;
 };
 
 export async function getAppSettings():Promise<AppSettings>{
   await ensureSchema();
-  const rows=await query<{splunk_request_timeout_seconds:unknown;ame_closed_status_id:unknown}>(
-    "SELECT splunk_request_timeout_seconds,ame_closed_status_id FROM app_settings WHERE id='default' LIMIT 1",
+  const rows=await query<{splunk_request_timeout_seconds:unknown;ame_closed_status_id:unknown;ame_in_progress_status_id:unknown}>(
+    "SELECT splunk_request_timeout_seconds,ame_closed_status_id,ame_in_progress_status_id FROM app_settings WHERE id='default' LIMIT 1",
   );
   return {
     splunkRequestTimeoutSeconds:
       normalizeSplunkRequestTimeoutSeconds(rows[0]?.splunk_request_timeout_seconds)??DEFAULT_SPLUNK_REQUEST_TIMEOUT_SECONDS,
     ameClosedStatusId:String(rows[0]?.ame_closed_status_id??DEFAULT_AME_CLOSED_STATUS_ID),
+    ameInProgressStatusId:String(rows[0]?.ame_in_progress_status_id??DEFAULT_AME_IN_PROGRESS_STATUS_ID),
   };
 }
 
@@ -41,8 +45,8 @@ export async function saveSplunkRequestTimeoutSeconds(value:unknown):Promise<App
 }
 
 export async function saveAmeClosedStatusId(value:unknown):Promise<AppSettings>{
-  const statusId=String(value??"").trim();
-  if(!/^[a-zA-Z0-9_-]{1,128}$/.test(statusId)){
+  const statusId=normalizeAmeStatusId(value);
+  if(!statusId){
     throw new Error("Enter a valid AME status identifier.");
   }
 
@@ -52,6 +56,24 @@ export async function saveAmeClosedStatusId(value:unknown):Promise<AppSettings>{
      VALUES('default',$1)
      ON CONFLICT(id) DO UPDATE SET
        ame_closed_status_id=EXCLUDED.ame_closed_status_id,
+       updated_at=NOW()`,
+    [statusId],
+  );
+  return getAppSettings();
+}
+
+export async function saveAmeInProgressStatusId(value:unknown):Promise<AppSettings>{
+  const statusId=normalizeAmeStatusId(value);
+  if(!statusId){
+    throw new Error("Enter a valid AME status identifier.");
+  }
+
+  await ensureSchema();
+  await query(
+    `INSERT INTO app_settings(id,ame_in_progress_status_id)
+     VALUES('default',$1)
+     ON CONFLICT(id) DO UPDATE SET
+       ame_in_progress_status_id=EXCLUDED.ame_in_progress_status_id,
        updated_at=NOW()`,
     [statusId],
   );

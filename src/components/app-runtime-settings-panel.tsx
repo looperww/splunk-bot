@@ -3,19 +3,21 @@
 import { useEffect, useState } from "react";
 import {
   DEFAULT_AME_CLOSED_STATUS_ID,
+  DEFAULT_AME_IN_PROGRESS_STATUS_ID,
   DEFAULT_SPLUNK_REQUEST_TIMEOUT_SECONDS,
   MAX_SPLUNK_REQUEST_TIMEOUT_SECONDS,
   MIN_SPLUNK_REQUEST_TIMEOUT_SECONDS,
 } from "@/lib/settings-policy";
 
 type SettingsResponse={
-  settings?:{splunkRequestTimeoutSeconds:number;ameClosedStatusId:string};
+  settings?:{splunkRequestTimeoutSeconds:number;ameClosedStatusId:string;ameInProgressStatusId:string};
   error?:string;
 };
 
 export default function AppRuntimeSettingsPanel(){
   const [timeoutSeconds,setTimeoutSeconds]=useState(DEFAULT_SPLUNK_REQUEST_TIMEOUT_SECONDS);
   const [ameClosedStatusId,setAmeClosedStatusId]=useState(DEFAULT_AME_CLOSED_STATUS_ID);
+  const [ameInProgressStatusId,setAmeInProgressStatusId]=useState(DEFAULT_AME_IN_PROGRESS_STATUS_ID);
   const [loaded,setLoaded]=useState(false);
   const [busy,setBusy]=useState(false);
   const [status,setStatus]=useState("");
@@ -28,6 +30,7 @@ export default function AppRuntimeSettingsPanel(){
         if(!response.ok||!data.settings) throw new Error(data.error??"Failed to load application settings.");
         setTimeoutSeconds(data.settings.splunkRequestTimeoutSeconds);
         setAmeClosedStatusId(data.settings.ameClosedStatusId);
+        setAmeInProgressStatusId(data.settings.ameInProgressStatusId);
         setLoaded(true);
       })
       .catch((reason)=>setError(reason instanceof Error?reason.message:"Failed to load application settings."));
@@ -37,6 +40,8 @@ export default function AppRuntimeSettingsPanel(){
     timeoutSeconds>=MIN_SPLUNK_REQUEST_TIMEOUT_SECONDS&&
     timeoutSeconds<=MAX_SPLUNK_REQUEST_TIMEOUT_SECONDS;
   const validAmeStatusId=/^[a-zA-Z0-9_-]{1,128}$/.test(ameClosedStatusId.trim());
+  const validAmeInProgressStatusId=/^[a-zA-Z0-9_-]{1,128}$/.test(ameInProgressStatusId.trim());
+  const distinctAmeStatusIds=ameClosedStatusId.trim()!==ameInProgressStatusId.trim();
 
   async function save(){
     setBusy(true);
@@ -49,12 +54,14 @@ export default function AppRuntimeSettingsPanel(){
         body:JSON.stringify({
           splunkRequestTimeoutSeconds:timeoutSeconds,
           ameClosedStatusId:ameClosedStatusId.trim(),
+          ameInProgressStatusId:ameInProgressStatusId.trim(),
         }),
       });
       const data=await response.json() as SettingsResponse;
       if(!response.ok||!data.settings) throw new Error(data.error??"Failed to save application settings.");
       setTimeoutSeconds(data.settings.splunkRequestTimeoutSeconds);
       setAmeClosedStatusId(data.settings.ameClosedStatusId);
+      setAmeInProgressStatusId(data.settings.ameInProgressStatusId);
       setStatus("Application settings saved.");
     }catch(reason){
       setError(reason instanceof Error?reason.message:"Failed to save application settings.");
@@ -96,7 +103,7 @@ export default function AppRuntimeSettingsPanel(){
     <div className="chat-budget-setting">
       <div>
         <strong>AME status used when closing an event</strong>
-        <p>The app uses this AME status identifier when it syncs a closure to Splunk. The default is the Closed status from your captured AME response.</p>
+        <p>The app uses this AME status identifier for the final close in Splunk. The default is the Closed status from your captured AME response.</p>
       </div>
       <label>
         <span className="label">Closed status identifier</span>
@@ -110,8 +117,26 @@ export default function AppRuntimeSettingsPanel(){
         <small id="ame-status-id-help">Saved in the database. Leave unchanged unless your AME status options are different.</small>
       </label>
     </div>
+    <div className="chat-budget-setting">
+      <div>
+        <strong>AME status before closing a new event</strong>
+        <p>AME requires a new event to move to an intermediate status before it can be closed. The app will move it to this status, then apply the Closed status above.</p>
+      </div>
+      <label>
+        <span className="label">In-progress status identifier</span>
+        <input
+          value={ameInProgressStatusId}
+          onChange={(event)=>setAmeInProgressStatusId(event.target.value)}
+          aria-invalid={!validAmeInProgressStatusId||!distinctAmeStatusIds}
+          aria-describedby="ame-in-progress-status-id-help"
+          disabled={!loaded||busy}
+        />
+        <small id="ame-in-progress-status-id-help">Default: {DEFAULT_AME_IN_PROGRESS_STATUS_ID}. The in-progress and closed identifiers must be different.</small>
+      </label>
+    </div>
+    {!distinctAmeStatusIds&&<div className="error-box" role="alert">Choose different identifiers for the in-progress and closed statuses.</div>}
     <div className="connection-actions">
-      <button className="primary-button" type="button" disabled={!loaded||busy||!valid||!validAmeStatusId} onClick={()=>void save()}>
+      <button className="primary-button" type="button" disabled={!loaded||busy||!valid||!validAmeStatusId||!validAmeInProgressStatusId||!distinctAmeStatusIds} onClick={()=>void save()}>
         {busy?"Saving…":"Save settings"}
       </button>
     </div>

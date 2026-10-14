@@ -1,6 +1,7 @@
 import { getConnectionCredentials } from "@/lib/connections";
 import { getCachedAmeEvent } from "@/lib/ame-event-cache";
 import { getAppSettings } from "@/lib/app-settings";
+import { closeAmeStatusThroughAllowedTransition } from "@/lib/ame-status-transition";
 
 export type AmeWritebackResult={
   syncedEventIds:string[];
@@ -52,6 +53,12 @@ export async function closeAmeEventsInSplunk(input:{
   }
 
   const settings=await getAppSettings();
+  if(settings.ameClosedStatusId===settings.ameInProgressStatusId){
+    return {
+      syncedEventIds:[],
+      failures:eventIds.map((eventId)=>({eventId,message:"The AME in-progress and closed status identifiers must be different."})),
+    };
+  }
   const url=new URL("/services/ame_events/update",connection.baseUrl);
   for(const eventId of eventIds){
     try{
@@ -63,35 +70,40 @@ export async function closeAmeEventsInSplunk(input:{
       const raw=cached.event.raw;
       const eventKey=String(raw._key??cached.event.id).trim();
       const tenantUid=String(raw.tenant_uid??"default").trim()||"default";
-      const body={
-        update_objects:[{attribute:"status",value:settings.ameClosedStatusId}],
-        event:{_key:eventKey,tenant_uid:tenantUid},
-        comment:input.reason,
+      const updateStatus=async(statusId:string,comment:string):Promise<string|null>=>{
+        // Use the saved Splunk token directly against splunkd. Browser cookies
+        // and the Splunk Web CSRF form key are intentionally not forwarded.
+        const response=await fetch(url,{
+          method:"PUT",
+          headers:{
+            Authorization:"Bearer "+connection.token,
+            Accept:"application/json",
+            "Content-Type":"application/json",
+          },
+          body:JSON.stringify({
+            update_objects:[{attribute:"status",value:statusId}],
+            event:{_key:eventKey,tenant_uid:tenantUid},
+            comment,
+          }),
+          cache:"no-store",
+          signal:AbortSignal.timeout(settings.splunkRequestTimeoutSeconds*1000),
+        });
+        const responseText=await response.text();
+        let payload:unknown;
+        try{payload=JSON.parse(responseText) as unknown;}
+        catch{return "AME returned a non-JSON response (HTTP "+response.status+").";}
+        const apiError=responseError(payload);
+        return !response.ok||apiError?apiError??("AME update failed (HTTP "+response.status+")."):null;
       };
 
-      // Use the saved Splunk token directly against splunkd. Browser cookies and
-      // the Splunk Web CSRF form key are intentionally not forwarded.
-      const response=await fetch(url,{
-        method:"PUT",
-        headers:{
-          Authorization:"Bearer "+connection.token,
-          Accept:"application/json",
-          "Content-Type":"application/json",
-        },
-        body:JSON.stringify(body),
-        cache:"no-store",
-        signal:AbortSignal.timeout(settings.splunkRequestTimeoutSeconds*1000),
-      });
-      const responseText=await response.text();
-      let payload:unknown;
-      try{payload=JSON.parse(responseText) as unknown;}
-      catch{
-        result.failures.push({eventId,message:"AME returned a non-JSON response (HTTP "+response.status+")."});
-        continue;
-      }
-      const apiError=responseError(payload);
-      if(!response.ok||apiError){
-        result.failures.push({eventId,message:apiError??("AME update failed (HTTP "+response.status+").")});
+      const apiError=await closeAmeStatusThroughAllowedTransition(
+        updateStatus,
+        settings.ameClosedStatusId,
+        settings.ameInProgressStatusId,
+        input.reason,
+      );
+      if(apiError){
+        result.failures.push({eventId,message:apiError});
         continue;
       }
       result.syncedEventIds.push(eventId);
