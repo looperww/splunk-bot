@@ -34,7 +34,7 @@ The upstream library contains offensive and dual-use material, scripts, and proc
 Instead, Splunk Bot uses a curated skill layer:
 - selected methodology is copied into this repository;
 - a local catalog describes when each skill applies;
-- the router chooses only relevant skills for the approved investigation scope;
+- the router chooses relevant skills from the current request and saved investigation context;
 - skills are treated as methodology, not permissions.
 
 ## Runtime model

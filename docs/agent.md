@@ -13,44 +13,34 @@ Its purpose is to help an analyst answer:
 
 The agent does not perform remediation and must not represent a recommendation as an action that has already happened.
 
-## Agent state machine
+## Agent flow
 
 ```
 Analyst message
       |
       v
-[1] Intake / Scope Gate
+[1] Read request and optional scope guidance
       |
-      +--> incomplete --> ask up to 3 targeted questions
-      |                       |
-      |                       v
-      |                  analyst answer
-      |                       |
-      |                       +----> Intake again
-      |
-      +--> ready
+[2] Select relevant skills and tools
             |
             v
-[2] Skill Selection
+[3] Baseline evidence when useful
             |
             v
-[3] Baseline Evidence
+[4] Evidence-driven pivots
             |
             v
-[4] Evidence-driven Pivots
+[5] Targeted confirmation
             |
             v
-[5] Targeted Confirmation
-            |
-            v
-[6] Final Investigation Report
+[6] Continue conversation or create a report on request
 ```
 
-The application controls the transitions. The model can choose the next investigation step, but it cannot bypass the scope gate.
+The saved scope and selected event are guidance, not a gate. The agent follows the analyst's latest request, including a request to change the objective, target, data source, or time range. It asks for clarification only when a missing detail blocks useful progress.
 
-## Scope gate
+## Scope guidance
 
-The minimum required scope is:
+The app can save these details as context:
 
 - objective;
 - target/entity;
@@ -62,15 +52,13 @@ Optional context:
 - data sources;
 - investigative focus.
 
-A selected AME event may provide part of the target/context automatically.
+A selected AME event or incident form may provide useful starting context. The analyst can broaden or replace any of it during the chat.
 
-The intake stage never has access to the Splunk search tool.
-
-Questions must be progressive. The agent should ask only for missing information that materially reduces ambiguity or search cost.
+The planner does not require these fields before the Splunk search tool becomes available. Search time bounds come from the analyst's current request; saved bounds are defaults only when still relevant.
 
 ## Skill layer
 
-The skill router selects up to four relevant defensive skills using the investigation objective, target, data source, and focus.
+The skill router selects up to four relevant defensive skills using available request and investigation context, including objective, target, data source, and focus.
 
 The selected skill bodies are loaded from the repository's `skills/` directory at runtime and supplied to the investigation agent as methodology guidance.
 
@@ -84,7 +72,7 @@ Skills define:
 
 Skills do not define permissions.
 
-A skill can recommend an action conceptually, but the current agent has only a read-only Splunk search tool.
+A skill can recommend an action conceptually. The SOC chat can use curated app database reads, bundled documentation, read-only source search, a read-only Splunk connection test, and validated read-only Splunk searches. Explicitly requested, allowlisted app settings can be changed through the dedicated setting tool. It cannot edit source, run shell commands or arbitrary SQL, or change Splunk/AME state.
 
 ## Investigation loop
 
@@ -119,7 +107,7 @@ Typical pivots include:
 - event ID;
 - timestamp.
 
-A pivot must be justified by evidence already collected.
+A pivot should follow collected evidence or a target the analyst directly asks to examine.
 
 ### Confirmation
 
@@ -138,26 +126,32 @@ Stop when:
 
 ## Tool contract
 
-The agent exposes one operational tool:
+The agent exposes these tools:
 
 `search_splunk`
+
+Curated app diagnostics are also available through `query_app_database`, `search_app_documentation`, `search_app_source`, and `test_splunk_connection`.
 
 The tool accepts:
 
 - `query`;
 - `reason`;
+- `earliest` and `latest`, selected from the analyst's current request;
 - `phase` = baseline | pivot | confirmation.
 
-The application supplies the approved time window. The model does not control search `earliest` or `latest`.
+Saved scope is guidance only. The model can choose different search bounds when the analyst asks to broaden or change the investigation.
 
-This prevents a tool call from silently expanding the investigation window.
+The explicit time bounds appear in the search history so the analyst can see and verify each search range.
 
 ## Current budgets
 
 Per investigation invocation:
 
 - maximum 6 Splunk searches;
-- maximum 4 tool rounds;
+- maximum 12 search attempts;
+- maximum 4 automatic SPL repairs;
+- up to 12 total tool rounds, including 4 additional diagnostic rounds;
+- maximum 12 app diagnostic tool calls;
 - aggregate result limit: 200 rows;
 - raw evidence limit: 50 events per drill-down;
 - query limit: 4,000 characters.

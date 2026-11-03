@@ -247,7 +247,7 @@ export async function investigateLocally(
         "",
         "Suggested next steps:",
         "1. Validate the highest-value result rows and timeline with the analyst.",
-        "2. Expand or narrow the approved scope only if the evidence shows a material gap.",
+        "2. For a follow-up, use the analyst's latest request to expand or change the search target, data source, or time range.",
         "3. Have an authorized human review and approve any containment or remediation action.",
         "",
         "This local mode is intended to validate the Splunk connection, discovery cache, search permissions, and agent workflow. Add an OpenAI API key later to enable model-driven investigation reasoning.",

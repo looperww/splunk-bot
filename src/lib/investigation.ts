@@ -35,7 +35,7 @@ export function hasUsableTarget(
 
 export function normalizePlan(
   plan: InvestigationPlan,
-  eventContext?: Record<string, unknown>,
+  _eventContext?: Record<string, unknown>,
 ): InvestigationPlan {
   const scope = { ...plan.scope };
   const timeRange=normalizeSplunkTimeRange(scope.earliest,scope.latest);
@@ -47,65 +47,8 @@ export function normalizePlan(
     scope.latest="";
   }
 
-  if (
-    plan.status === "ready" &&
-    (!scope.objective.trim() ||
-      !hasUsableTarget(eventContext, scope.target) ||
-      !timeRange)
-  ) {
-    return {
-      status: "clarification_needed",
-      scope,
-      questions: buildFallbackQuestions(scope, eventContext),
-    };
-  }
-
-  if (plan.status === "clarification_needed") {
-    return {
-      status: "clarification_needed",
-      scope,
-      questions: plan.questions.slice(0, 3),
-    };
-  }
-
+  // Scope is persisted as context for the agent and UI, never as a gate on the user's request.
   return { status: "ready", scope };
-}
-
-function buildFallbackQuestions(
-  scope: InvestigationScope,
-  eventContext?: Record<string, unknown>,
-): InvestigationQuestion[] {
-  const questions: InvestigationQuestion[] = [];
-
-  if (!scope.objective.trim()) {
-    questions.push({
-      id: "objective",
-      question: "What are you trying to determine from this investigation?",
-      options: [
-        "Whether the alert represents a real security incident",
-        "Whether the host or user was compromised",
-        "What happened and what the attacker did",
-      ],
-    });
-  }
-
-  if (!hasUsableTarget(eventContext, scope.target)) {
-    questions.push({
-      id: "target",
-      question: "Which entity should I investigate (host, user, IP, domain, CVE, or another identifier)?",
-      options: [],
-    });
-  }
-
-  if (!scope.earliest.trim() || !scope.latest.trim()) {
-    questions.push({
-      id: "time_range",
-      question: "What time window should I investigate?",
-      options: ["Around the alert ±24 hours", "Last 24 hours", "Last 7 days"],
-    });
-  }
-
-  return questions.slice(0, 3);
 }
 
 export function buildScopePrompt(
@@ -113,12 +56,12 @@ export function buildScopePrompt(
   eventContext?: Record<string, unknown>,
 ): string {
   return [
-    "Approved investigation scope:",
+    "Saved investigation scope (guidance only):",
     JSON.stringify(scope),
     eventContext
-      ? "Selected AME event context is available. Stay focused on that event unless the analyst explicitly broadens scope."
+      ? "Selected AME event context is available as starting context. The analyst may change or broaden the request at any time."
       : "",
-    "Do not search outside the approved objective, target, or time window.",
+    "The analyst's latest explicit request controls the task and can replace or broaden any saved scope field.",
   ]
     .filter(Boolean)
     .join("\n");

@@ -128,7 +128,7 @@ export default function AgentsPage(){
         <details className="agent-system-details" open><summary>Agent identity</summary><pre>{agent.identity}</pre></details>
         <details className="agent-system-details" open><summary>Investigation method</summary><pre>{agent.method}</pre></details>
         <details className="agent-system-details" open><summary>Safety, search, and reporting rules</summary><pre>{agent.guardrails}</pre></details>
-        <div className="agent-context-note">At chat time, the application also adds platform safety governance, approved scope, selected skills, event or incident context, and cached Splunk knowledge. These are generated for each investigation.</div>
+        <div className="agent-context-note">At chat time, the application also adds platform safety governance, saved scope guidance, selected skills, event or incident context, and cached Splunk knowledge. These are generated for each investigation.</div>
       </article>)}
       {!agents.length&&!error&&<div className="empty-state panel">Loading agents…</div>}
     </div>

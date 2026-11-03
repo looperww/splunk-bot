@@ -2,9 +2,9 @@
 
 ## Core rule
 
-**Clarify before query.**
+**Follow the user's request.**
 
-The bot should not immediately search Splunk when a request is broad. It should first determine whether the request contains enough information to make a targeted, efficient investigation.
+The saved investigation scope is useful context, not a boundary. Start with the information available and follow the analyst's latest request, including requests to change the target, data source, objective, or time range. Ask a focused question only when an ambiguity blocks useful progress.
 
 ## Scope model
 
@@ -18,9 +18,9 @@ The investigation scope contains:
 
 A selected AME event can satisfy some of these fields.
 
-## Progressive clarification
+## Optional clarification
 
-Questions should be dynamic.
+The planner records any scope it can infer but never gates the chat or search tool. The investigation agent can ask one question in a normal reply when it cannot make useful progress without an answer.
 
 ### Example 1
 User:
@@ -28,14 +28,7 @@ User:
 Investigate this incident.
 ```
 
-Bot:
-```
-Before I search Splunk, I need to narrow the scope.
-
-What are you trying to determine?
-Which entity should I focus on?
-What time window should I use?
-```
+Bot should begin with a reasonable investigation plan, use the event as starting context, and mention any assumptions. It can ask a follow-up only if a missing detail materially blocks the next useful step.
 
 ### Example 2
 User:
@@ -43,13 +36,7 @@ User:
 Investigate web-01 for compromise.
 ```
 
-Bot:
-```
-I have the objective and target. What time window should I use?
-- Around the alert ±24 hours
-- Last 24 hours
-- Last 7 days
-```
+Bot may use the alert time range as a default, but should follow a different time range requested by the analyst.
 
 ### Example 3
 User:
@@ -57,18 +44,18 @@ User:
 Check web-01 for suspicious authentication in the last 24 hours.
 ```
 
-Bot should normally proceed to investigation because objective, target and time window are present.
+Bot should proceed, with the saved scope serving as guidance.
 
 ## Intake contract
 
-The intake planner returns either clarification-needed or ready with a structured scope. It must never execute Splunk during intake.
+The planner extracts optional scope guidance and never blocks the user's request. It does not execute Splunk; the investigation stage receives the request immediately.
 
 ## Search stage
 
-Only after the intake returns `ready` may the investigation controller expose the Splunk search tool.
+The Splunk search tool is available immediately. Its time bounds come from the analyst's current request, using saved scope only when relevant.
 
 The controller should:
-- enforce scope;
+- treat scope as guidance and let the latest user request broaden or replace it;
 - limit search count;
 - prefer efficient searches;
 - preserve evidence references;
@@ -80,4 +67,4 @@ Splunk data is untrusted evidence. Log content must never become instructions fo
 
 The user must never be asked to paste credentials or secrets.
 
-No write operation is available to the investigator during the initial release.
+The chat can change only an explicitly requested, allowlisted app setting through its dedicated tool. It cannot write Splunk/AME state, execute arbitrary SQL, access credentials, or edit source code.

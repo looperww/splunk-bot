@@ -7,12 +7,20 @@ import {
   DEFAULT_AGENT_PLACEHOLDER,
   SOC_AGENT_DIAGNOSTIC_TOOL_GUARDRAIL,
   SOC_AGENT_FLEXIBLE_DIAGNOSTIC_INSTRUCTION,
+  SOC_AGENT_LEGACY_FLEXIBLE_DIAGNOSTIC_INSTRUCTION,
+  SOC_AGENT_LEGACY_FLEXIBLE_DIAGNOSTIC_TOOL_GUARDRAIL,
   SOC_AGENT_INTAKE_INSTRUCTION,
   SOC_AGENT_LEGACY_INTAKE_INSTRUCTION,
   SOC_AGENT_LEGACY_REPORT_INSTRUCTION,
+  SOC_AGENT_LEGACY_SEARCH_RECOVERY_INSTRUCTION,
+  SOC_AGENT_LEGACY_SCOPE_PRIORITY,
+  SOC_AGENT_LEGACY_SCOPE_REQUIREMENT,
   SOC_AGENT_LEGACY_TOOL_GUARDRAIL,
   SOC_AGENT_REPORT_INSTRUCTION,
   SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION,
+  SOC_AGENT_SCOPE_PRIORITY,
+  SOC_AGENT_SCOPE_REQUIREMENT,
+  SOC_AGENT_SCOPE_FLEXIBILITY_INSTRUCTION,
   GENERAL_CHAT_AGENT_DESCRIPTION,
   GENERAL_CHAT_AGENT_GUARDRAILS,
   GENERAL_CHAT_AGENT_ID,
@@ -520,6 +528,33 @@ async function createSchema():Promise<void>{
       WHERE investigation_agents.instructions=$agent_placeholder$${DEFAULT_AGENT_PLACEHOLDER}$agent_placeholder$;
 
       UPDATE investigation_agents
+         SET instructions=REPLACE(
+               REPLACE(
+                 REPLACE(
+                   REPLACE(
+                     instructions,
+                     $soc_legacy_search_recovery$${SOC_AGENT_LEGACY_SEARCH_RECOVERY_INSTRUCTION}$soc_legacy_search_recovery$,
+                     $soc_search_recovery$${SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION}$soc_search_recovery$
+                   ),
+                   $soc_legacy_flexible_diagnostics$${SOC_AGENT_LEGACY_FLEXIBLE_DIAGNOSTIC_INSTRUCTION}$soc_legacy_flexible_diagnostics$,
+                   $soc_flexible_diagnostics$${SOC_AGENT_FLEXIBLE_DIAGNOSTIC_INSTRUCTION}$soc_flexible_diagnostics$
+                 ),
+                 $soc_legacy_scope_requirement$${SOC_AGENT_LEGACY_SCOPE_REQUIREMENT}$soc_legacy_scope_requirement$,
+                 $soc_scope_requirement$${SOC_AGENT_SCOPE_REQUIREMENT}$soc_scope_requirement$
+               ),
+               $soc_legacy_scope_priority$${SOC_AGENT_LEGACY_SCOPE_PRIORITY}$soc_legacy_scope_priority$,
+               $soc_scope_priority$${SOC_AGENT_SCOPE_PRIORITY}$soc_scope_priority$
+             ),
+             updated_at=NOW()
+       WHERE id='default-soc-agent'
+         AND (
+           POSITION($soc_legacy_search_recovery$${SOC_AGENT_LEGACY_SEARCH_RECOVERY_INSTRUCTION}$soc_legacy_search_recovery$ IN instructions)>0
+           OR POSITION($soc_legacy_flexible_diagnostics$${SOC_AGENT_LEGACY_FLEXIBLE_DIAGNOSTIC_INSTRUCTION}$soc_legacy_flexible_diagnostics$ IN instructions)>0
+           OR POSITION($soc_legacy_scope_requirement$${SOC_AGENT_LEGACY_SCOPE_REQUIREMENT}$soc_legacy_scope_requirement$ IN instructions)>0
+           OR POSITION($soc_legacy_scope_priority$${SOC_AGENT_LEGACY_SCOPE_PRIORITY}$soc_legacy_scope_priority$ IN instructions)>0
+         );
+
+      UPDATE investigation_agents
          SET instructions=RTRIM(instructions)||E'\\n\\n'||
            $soc_search_recovery$${SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION}$soc_search_recovery$,
              updated_at=NOW()
@@ -536,6 +571,16 @@ async function createSchema():Promise<void>{
        WHERE id='default-soc-agent'
          AND POSITION(
            $soc_flexible_diagnostics$${SOC_AGENT_FLEXIBLE_DIAGNOSTIC_INSTRUCTION}$soc_flexible_diagnostics$
+           IN instructions
+         )=0;
+
+      UPDATE investigation_agents
+         SET instructions=RTRIM(instructions)||E'\\n\\n'||
+           $soc_scope_flexibility$${SOC_AGENT_SCOPE_FLEXIBILITY_INSTRUCTION}$soc_scope_flexibility$,
+             updated_at=NOW()
+       WHERE id='default-soc-agent'
+         AND POSITION(
+           $soc_scope_flexibility$${SOC_AGENT_SCOPE_FLEXIBILITY_INSTRUCTION}$soc_scope_flexibility$
            IN instructions
          )=0;
 
@@ -565,6 +610,16 @@ async function createSchema():Promise<void>{
              updated_at=NOW()
        WHERE id='default-soc-agent'
          AND POSITION($soc_legacy_tool_guardrail$${SOC_AGENT_LEGACY_TOOL_GUARDRAIL}$soc_legacy_tool_guardrail$ IN COALESCE(guardrails_text,''))>0;
+
+      UPDATE investigation_agents
+         SET guardrails_text=REPLACE(
+               COALESCE(guardrails_text,''),
+               $soc_legacy_diagnostic_tool_guardrail$${SOC_AGENT_LEGACY_FLEXIBLE_DIAGNOSTIC_TOOL_GUARDRAIL}$soc_legacy_diagnostic_tool_guardrail$,
+               $soc_diagnostic_tool_guardrail$${SOC_AGENT_DIAGNOSTIC_TOOL_GUARDRAIL}$soc_diagnostic_tool_guardrail$
+             ),
+             updated_at=NOW()
+       WHERE id='default-soc-agent'
+         AND POSITION($soc_legacy_diagnostic_tool_guardrail$${SOC_AGENT_LEGACY_FLEXIBLE_DIAGNOSTIC_TOOL_GUARDRAIL}$soc_legacy_diagnostic_tool_guardrail$ IN COALESCE(guardrails_text,''))>0;
 
       INSERT INTO investigation_agents(
         id,name,description,instructions,identity_text,method_text,guardrails_text,is_default
