@@ -90,12 +90,12 @@ export function classifySplunkFailure(input:SplunkFailureInput):SplunkFailureCla
   if(/invalid\s+(?:earliest|latest)_time|(?:earliest|latest)_time.{0,40}(?:invalid|malformed)|invalid time range/i.test(combined)){
     return {category:"invalid_time",recovery:"retry_time_as_epoch",diagnostic};
   }
-  if(/syntax|parse error|unexpected token|unknown search command|error in .{0,50}\bcommand|malformed search|invalid (?:search )?(?:expression|argument|field)/i.test(combined)){
+  if(/syntax|parse error|unexpected token|unknown search command|missing (?:a )?search command|error in .{0,50}\bcommand|malformed search|invalid (?:search )?(?:expression|argument|field)/i.test(combined)){
     return {category:"query_syntax",recovery:"model_repair_once",diagnostic};
   }
 
   if(status===400||status===422){
-    return {category:"request_invalid",recovery:"model_repair_once",diagnostic};
+    return {category:"request_invalid",recovery:"stop",diagnostic};
   }
   if(status!==null){
     return {category:"unknown",recovery:"stop",diagnostic};

@@ -7,6 +7,8 @@ import {
   generalChatInvestigationContext,
   GENERAL_CHAT_TOOLS,
   GENERAL_CHAT_TOOLS_WITH_SETTINGS,
+  INVESTIGATION_DIAGNOSTIC_TOOLS,
+  INVESTIGATION_DIAGNOSTIC_TOOLS_WITH_SETTINGS,
   redactSensitiveData,
   serializeGeneralToolOutput,
 } from "@/lib/general-chat-tools";
@@ -761,6 +763,7 @@ export async function investigate(
   incidentContext?:IncidentContext,
   options?:InvestigationAiOptions,
   conversationState?:InvestigationConversationState,
+  investigationRecord?:InvestigationRecord,
 ){
   const ai=await getAiRuntimeSettings();
   const searchBudget=resolveAgentSearchBudget(ai.maxSearchesPerTurn);
@@ -774,12 +777,27 @@ export async function investigate(
   const skills=await selectDatabaseSkills(scope,4);
   const knowledge=await getSplunkKnowledge(connectionId);
   const learnings=await listLearnings({connectionId,status:"active",limit:50});
+  const latestUserMessage=[...messages].reverse().find((message)=>message.role==="user")?.content??"";
+  const requestedSettings=requestedAppSettingChanges(latestUserMessage);
+  const diagnosticTools=requestedSettings.length
+    ?INVESTIGATION_DIAGNOSTIC_TOOLS_WITH_SETTINGS
+    :INVESTIGATION_DIAGNOSTIC_TOOLS;
+  const investigationTools=[searchTool,...diagnosticTools];
+  const investigationToolNames=new Set([
+    "search_splunk",
+    "query_app_database",
+    "search_app_documentation",
+    "search_app_source",
+    "test_splunk_connection",
+    ...(requestedSettings.length?["update_app_setting"]:[]),
+  ]);
   const developerPrompt=[
     buildAgentPrompt(scope,skills,eventContext,agent,incidentContext,searchBudget),
     buildKnowledgePrompt(knowledge),
     buildLearningPrompt(learnings),
     "CONVERSATION CONTINUITY\nUse the full supplied chat transcript and saved investigation state. Refer back to earlier analyst answers and conclusions, do not restart the investigation or repeat already answered questions, and use prior searches/evidence before requesting new searches. If the analyst changes direction, explain how that affects the saved scope.",
     conversationStatePrompt(conversationState,scope),
+    investigationRecord?generalChatInvestigationContext(investigationRecord):"",
   ].join("\n\n");
 
   const conversationInput:unknown[]=[
@@ -792,7 +810,7 @@ export async function investigate(
     ai.apiKey,
     ai.model,
     conversationInput,
-    [searchTool],
+    investigationTools,
     undefined,
     undefined,
     options,
@@ -815,6 +833,7 @@ export async function investigate(
   let searchCount=0;
   let searchAttempts=0;
   let toolRounds=0;
+  let diagnosticToolCalls=0;
   let recoveryAttempts=0;
   let automaticRetries=0;
   let recoveryPending=false;
@@ -823,18 +842,21 @@ export async function investigate(
   let emptyBaselineCheckUsed=false;
   let failedRecoveryKey="";
   const recoveryAttemptsLimit=AGENT_CONFIG.maxAutomaticQueryRepairsPerTurn;
-  const toolRoundLimit=searchBudget.maxToolRounds+recoveryAttemptsLimit;
+  const maxDiagnosticToolCalls=AGENT_CONFIG.maxDiagnosticToolCallsPerTurn;
+  const toolRoundLimit=
+    searchBudget.maxToolRounds+
+    recoveryAttemptsLimit+
+    AGENT_CONFIG.maxDiagnosticToolRoundsPerTurn;
   const searchErrors:string[]=[];
   const recoveryNotes:string[]=[];
   let finalizationError="";
 
   while(
-    searchCount<searchBudget.maxSearchesPerTurn &&
-    searchAttempts<searchBudget.maxSearchAttemptsPerTurn &&
-    toolRounds<toolRoundLimit
+    toolRounds<toolRoundLimit&&
+    ((searchCount<searchBudget.maxSearchesPerTurn&&searchAttempts<searchBudget.maxSearchAttemptsPerTurn)||diagnosticToolCalls<maxDiagnosticToolCalls)
   ){
     const calls=(response.output??[]).filter(
-      (item)=>item.type==="function_call"&&item.name==="search_splunk",
+      (item)=>item.type==="function_call"&&investigationToolNames.has(String(item.name??"")),
     );
 
     if(!calls.length) break;
@@ -846,10 +868,73 @@ export async function investigate(
     const emptyBaselineCheckRound=emptyBaselineCheckPending;
     if(emptyBaselineCheckRound) emptyBaselineCheckPending=false;
     let recoveryCallTaken=false;
+    let recoveryCallSucceeded=false;
     let emptyBaselineCheckCallTaken=false;
+    let emptyBaselineCheckSucceeded=false;
 
     for(const call of calls){
       if(!call.call_id) continue;
+
+      const isSplunkSearchCall=call.name==="search_splunk";
+      if(!isSplunkSearchCall){
+        if((recoveryRound&&!recoveryCallSucceeded)||recoveryPending){
+          recoveryPending=true;
+          outputs.push(blockedSearchOutput(
+            call.call_id,
+            "A Splunk search error is awaiting correction. Correct the failed query first; continue app diagnostics afterward if they are still useful.",
+          ));
+          continue;
+        }
+        if((emptyBaselineCheckRound&&!emptyBaselineCheckSucceeded)||emptyBaselineCheckPending){
+          emptyBaselineCheckPending=true;
+          outputs.push(blockedSearchOutput(
+            call.call_id,
+            "Run the required verification search for the zero-result baseline before using another tool.",
+          ));
+          continue;
+        }
+        if(diagnosticToolCalls>=maxDiagnosticToolCalls){
+          outputs.push({
+            type:"function_call_output",
+            call_id:call.call_id,
+            output:serializeGeneralToolOutput({error:"The app-diagnostic tool-call limit for this reply has been reached. Summarize what is known and continue if more checks are needed."}),
+          });
+          continue;
+        }
+        diagnosticToolCalls++;
+        try{
+          if(!call.arguments) throw new Error("The app diagnostic tool call did not include arguments.");
+          const args=JSON.parse(call.arguments) as unknown;
+          if(!args||typeof args!=="object"||Array.isArray(args)) throw new Error("The app diagnostic tool arguments must be a JSON object.");
+          const execution=await executeGeneralChatTool(
+            String(call.name),
+            args as Record<string,unknown>,
+            {connectionId:investigationRecord?.connectionId??connectionId??null,requestedSettings},
+          );
+          outputs.push({
+            type:"function_call_output",
+            call_id:call.call_id,
+            output:serializeGeneralToolOutput(execution.output),
+          });
+        }catch(error){
+          outputs.push({
+            type:"function_call_output",
+            call_id:call.call_id,
+            output:serializeGeneralToolOutput(error instanceof SplunkSearchError?{
+              error:error.message,
+              category:error.category,
+              status:error.status,
+              diagnostic:error.diagnostic,
+              recoveryNotes:error.recoveryNotes,
+              guidance:"Use this diagnostic to adjust the next safe check; do not repeat an unchanged request.",
+            }:{
+              error:error instanceof Error?error.message:"The app diagnostic tool failed.",
+              guidance:"Use this error to diagnose access/configuration limits and continue with another relevant read-only check when possible.",
+            }),
+          });
+        }
+        continue;
+      }
 
       if(recoveryStopped){
         outputs.push(blockedSearchOutput(
@@ -904,7 +989,10 @@ export async function investigate(
         recoveryCallTaken=true;
         recoveryAttempts++;
       }
-      if(emptyBaselineCheckRound) emptyBaselineCheckCallTaken=true;
+      if(emptyBaselineCheckRound){
+        emptyBaselineCheckCallTaken=true;
+        emptyBaselineCheckPending=false;
+      }
 
       let attemptedKey="";
       try{
@@ -989,11 +1077,14 @@ export async function investigate(
           emptyBaselineCheckPending=true;
         }
         if(isRecoveryCall){
+          recoveryCallSucceeded=true;
+          recoveryPending=false;
           const note="The AI corrected the SPL after a recognized search error and the corrected search succeeded.";
           searchRecoveryNotes.push(note);
           recoveryNotes.push(note);
           failedRecoveryKey="";
         }
+        if(emptyBaselineCheckRound) emptyBaselineCheckSucceeded=true;
 
         searchCount++;
         searches.push({
@@ -1063,26 +1154,44 @@ export async function investigate(
     const replayedOutput=replayResponseOutput(response.output??[]);
     conversationInput.push(...replayedOutput,...outputs);
     newAiContext.push(...replayedOutput,...outputs);
+    const searchToolAvailable=
+      !recoveryStopped&&
+      searchCount<searchBudget.maxSearchesPerTurn&&
+      searchAttempts<searchBudget.maxSearchAttemptsPerTurn;
+    const diagnosticToolsAvailable=diagnosticToolCalls<maxDiagnosticToolCalls;
+    if(recoveryPending&&!searchToolAvailable){
+      recoveryPending=false;
+      recoveryStopped=true;
+      recoveryNotes.push("The search-attempt or successful-search budget ended before the pending correction could run.");
+    }
+    if(emptyBaselineCheckPending&&!searchToolAvailable){
+      emptyBaselineCheckPending=false;
+      recoveryNotes.push("No successful-search budget remained for the zero-result verification search.");
+    }
+    const nextTools:unknown[]=[
+      ...(searchToolAvailable?[searchTool]:[]),
+      ...(diagnosticToolsAvailable?diagnosticTools:[]),
+    ];
     response=await callAI(
       ai.apiKey,
       ai.model,
       conversationInput,
-      recoveryStopped?[]:[searchTool],
+      nextTools,
       undefined,
-      recoveryStopped
+      !searchToolAvailable&&nextTools.length===0
         ?"none"
-        :recoveryPending||emptyBaselineCheckPending
+        :searchToolAvailable&&(recoveryPending||emptyBaselineCheckPending)
           ?{type:"function",name:"search_splunk"}
           :undefined,
       options,
     );
-    if(recoveryStopped) break;
   }
 
   let finalMessage=extractText(response);
   const reachedLimit=
     searchCount>=searchBudget.maxSearchesPerTurn||
     searchAttempts>=searchBudget.maxSearchAttemptsPerTurn||
+    diagnosticToolCalls>=maxDiagnosticToolCalls||
     toolRounds>=toolRoundLimit;
 
   if(!finalMessage&&(reachedLimit||recoveryStopped||recoveryPending)){
@@ -1156,6 +1265,7 @@ export async function investigate(
       recoveryAttemptsUsed:recoveryAttempts,
       recoveryAttemptsLimit,
       automaticRetries,
+      diagnosticToolCalls,
     },
   };
 }

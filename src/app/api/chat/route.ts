@@ -123,6 +123,7 @@ export async function POST(request:NextRequest){
       record.incidentContext??undefined,
       aiOptions,
       conversationState,
+      record,
     );
 
     if(plan.status==="clarification_needed"){
@@ -163,6 +164,7 @@ export async function POST(request:NextRequest){
       record.incidentContext??undefined,
       aiOptions,
       conversationState,
+      record,
     );
     const updatedSearches=[...record.searches,...result.searches as SearchAudit[]];
     const responseMessage={...result.message,id:randomUUID()};

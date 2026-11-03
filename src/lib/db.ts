@@ -5,6 +5,13 @@ import {
   DEFAULT_AGENT_INSTRUCTIONS,
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_PLACEHOLDER,
+  SOC_AGENT_DIAGNOSTIC_TOOL_GUARDRAIL,
+  SOC_AGENT_FLEXIBLE_DIAGNOSTIC_INSTRUCTION,
+  SOC_AGENT_INTAKE_INSTRUCTION,
+  SOC_AGENT_LEGACY_INTAKE_INSTRUCTION,
+  SOC_AGENT_LEGACY_REPORT_INSTRUCTION,
+  SOC_AGENT_LEGACY_TOOL_GUARDRAIL,
+  SOC_AGENT_REPORT_INSTRUCTION,
   SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION,
   GENERAL_CHAT_AGENT_DESCRIPTION,
   GENERAL_CHAT_AGENT_GUARDRAILS,
@@ -521,6 +528,43 @@ async function createSchema():Promise<void>{
            $soc_search_recovery$${SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION}$soc_search_recovery$
            IN instructions
          )=0;
+
+      UPDATE investigation_agents
+         SET instructions=RTRIM(instructions)||E'\\n\\n'||
+           $soc_flexible_diagnostics$${SOC_AGENT_FLEXIBLE_DIAGNOSTIC_INSTRUCTION}$soc_flexible_diagnostics$,
+             updated_at=NOW()
+       WHERE id='default-soc-agent'
+         AND POSITION(
+           $soc_flexible_diagnostics$${SOC_AGENT_FLEXIBLE_DIAGNOSTIC_INSTRUCTION}$soc_flexible_diagnostics$
+           IN instructions
+         )=0;
+
+      UPDATE investigation_agents
+         SET instructions=REPLACE(
+               REPLACE(
+                 instructions,
+                 $soc_legacy_intake$${SOC_AGENT_LEGACY_INTAKE_INSTRUCTION}$soc_legacy_intake$,
+                 $soc_intake$${SOC_AGENT_INTAKE_INSTRUCTION}$soc_intake$
+               ),
+               $soc_legacy_report$${SOC_AGENT_LEGACY_REPORT_INSTRUCTION}$soc_legacy_report$,
+               $soc_report$${SOC_AGENT_REPORT_INSTRUCTION}$soc_report$
+             ),
+             updated_at=NOW()
+       WHERE id='default-soc-agent'
+         AND (
+           POSITION($soc_legacy_intake$${SOC_AGENT_LEGACY_INTAKE_INSTRUCTION}$soc_legacy_intake$ IN instructions)>0
+           OR POSITION($soc_legacy_report$${SOC_AGENT_LEGACY_REPORT_INSTRUCTION}$soc_legacy_report$ IN instructions)>0
+         );
+
+      UPDATE investigation_agents
+         SET guardrails_text=REPLACE(
+               COALESCE(guardrails_text,''),
+               $soc_legacy_tool_guardrail$${SOC_AGENT_LEGACY_TOOL_GUARDRAIL}$soc_legacy_tool_guardrail$,
+               $soc_tool_guardrail$${SOC_AGENT_DIAGNOSTIC_TOOL_GUARDRAIL}$soc_tool_guardrail$
+             ),
+             updated_at=NOW()
+       WHERE id='default-soc-agent'
+         AND POSITION($soc_legacy_tool_guardrail$${SOC_AGENT_LEGACY_TOOL_GUARDRAIL}$soc_legacy_tool_guardrail$ IN COALESCE(guardrails_text,''))>0;
 
       INSERT INTO investigation_agents(
         id,name,description,instructions,identity_text,method_text,guardrails_text,is_default

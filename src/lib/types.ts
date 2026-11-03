@@ -52,6 +52,7 @@ export type AgentBudget = {
   recoveryAttemptsUsed?:number;
   recoveryAttemptsLimit?:number;
   automaticRetries?:number;
+  diagnosticToolCalls?:number;
 };
 
 export type InvestigationQuestion = {

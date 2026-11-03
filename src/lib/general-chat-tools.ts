@@ -141,7 +141,17 @@ const updateAppSettingTool={
   },
 };
 
-export const GENERAL_CHAT_TOOLS=[appDataTool,appDocumentationTool,appSourceTool,splunkConnectionTestTool,splunkSearchTool];
+export const INVESTIGATION_DIAGNOSTIC_TOOLS=[
+  appDataTool,
+  appDocumentationTool,
+  appSourceTool,
+  splunkConnectionTestTool,
+];
+export const INVESTIGATION_DIAGNOSTIC_TOOLS_WITH_SETTINGS=[
+  ...INVESTIGATION_DIAGNOSTIC_TOOLS,
+  updateAppSettingTool,
+];
+export const GENERAL_CHAT_TOOLS=[...INVESTIGATION_DIAGNOSTIC_TOOLS,splunkSearchTool];
 export const GENERAL_CHAT_TOOLS_WITH_SETTINGS=[...GENERAL_CHAT_TOOLS,updateAppSettingTool];
 
 type ToolArguments=Record<string,unknown>;
