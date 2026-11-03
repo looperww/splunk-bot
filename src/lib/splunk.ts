@@ -225,12 +225,12 @@ export function validateSpl(query:string):void{
   ].map((match)=>match[1]);
 
   if(matches.length===0){
-    throw new Error("An explicit allowed index is required.");
+    throw new Error("An explicit allowed index is required. Configured allowed indexes: "+allowed.join(", "));
   }
 
   for(const index of matches){
     if(!allowed.includes(index)){
-      throw new Error('Index "'+index+'" is not allowed.');
+      throw new Error('Index "'+index+'" is not allowed. Configured allowed indexes: '+allowed.join(", "));
     }
   }
 }
@@ -293,7 +293,15 @@ export async function searchSplunk(
   maxResults=MAX_RESULTS,
   connectionId?:string,
 ){
-  validateSpl(query);
+  try{
+    validateSpl(query);
+  }catch(error){
+    const detail=error instanceof Error?error.message:"The SPL query was rejected by application policy.";
+    throw new SplunkSearchError(
+      {status:400,body:JSON.stringify({detail})},
+      "model_repair_once",
+    );
+  }
 
   if(maxResults<1||maxResults>MAX_RESULTS){
     throw new Error("Invalid Splunk result limit.");
@@ -317,7 +325,8 @@ export async function searchSplunk(
   });
   let currentEarliest=timeRange.earliest;
   let currentLatest=timeRange.latest;
-  let requestRetries=0;
+  let transientRetries=0;
+  let timeFormatRetried=false;
   const recoveryNotes:string[]=[];
   let exportText="";
 
@@ -338,8 +347,8 @@ export async function searchSplunk(
       text=await response.text();
     }catch(cause){
       const failure=new SplunkSearchError({cause});
-      if(failure.recovery==="retry_request_once"&&requestRetries<1){
-        requestRetries++;
+      if(failure.recovery==="retry_request_once"&&transientRetries<1){
+        transientRetries++;
         recoveryNotes.push("Splunk request timed out or failed temporarily; the same request was retried once.");
         await pauseBeforeRetry();
         continue;
@@ -355,14 +364,14 @@ export async function searchSplunk(
         :null;
 
     if(failure){
-      if(failure.recovery==="retry_time_as_epoch"&&requestRetries<1){
+      if(failure.recovery==="retry_time_as_epoch"&&!timeFormatRetried){
         const fallback=epochFallbackTimeRange(currentEarliest,currentLatest);
         if(fallback){
           currentEarliest=fallback.earliest;
           currentLatest=fallback.latest;
           body.set("earliest_time",currentEarliest);
           body.set("latest_time",currentLatest);
-          requestRetries++;
+          timeFormatRetried=true;
           recoveryNotes.push("Splunk rejected the ISO time format; the same time window was retried once as Unix epoch seconds.");
           continue;
         }
@@ -372,8 +381,8 @@ export async function searchSplunk(
           recoveryNotes,
         );
       }
-      if(failure.recovery==="retry_request_once"&&requestRetries<1){
-        requestRetries++;
+      if(failure.recovery==="retry_request_once"&&transientRetries<1){
+        transientRetries++;
         recoveryNotes.push("Splunk returned a temporary service error; the same request was retried once.");
         await pauseBeforeRetry();
         continue;

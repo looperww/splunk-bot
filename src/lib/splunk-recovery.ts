@@ -95,7 +95,7 @@ export function classifySplunkFailure(input:SplunkFailureInput):SplunkFailureCla
   }
 
   if(status===400||status===422){
-    return {category:"request_invalid",recovery:"stop",diagnostic};
+    return {category:"request_invalid",recovery:"model_repair_once",diagnostic};
   }
   if(status!==null){
     return {category:"unknown",recovery:"stop",diagnostic};

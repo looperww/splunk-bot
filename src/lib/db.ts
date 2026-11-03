@@ -5,6 +5,7 @@ import {
   DEFAULT_AGENT_INSTRUCTIONS,
   DEFAULT_AGENT_NAME,
   DEFAULT_AGENT_PLACEHOLDER,
+  SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION,
   GENERAL_CHAT_AGENT_DESCRIPTION,
   GENERAL_CHAT_AGENT_GUARDRAILS,
   GENERAL_CHAT_AGENT_ID,
@@ -510,6 +511,16 @@ async function createSchema():Promise<void>{
         description=EXCLUDED.description,
         instructions=EXCLUDED.instructions
       WHERE investigation_agents.instructions=$agent_placeholder$${DEFAULT_AGENT_PLACEHOLDER}$agent_placeholder$;
+
+      UPDATE investigation_agents
+         SET instructions=RTRIM(instructions)||E'\\n\\n'||
+           $soc_search_recovery$${SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION}$soc_search_recovery$,
+             updated_at=NOW()
+       WHERE id='default-soc-agent'
+         AND POSITION(
+           $soc_search_recovery$${SOC_AGENT_SEARCH_RECOVERY_INSTRUCTION}$soc_search_recovery$
+           IN instructions
+         )=0;
 
       INSERT INTO investigation_agents(
         id,name,description,instructions,identity_text,method_text,guardrails_text,is_default

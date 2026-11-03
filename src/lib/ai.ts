@@ -734,8 +734,8 @@ function splunkToolError(
     category:typed?.category??"application",
     retryAllowed,
     recoveryAction:retryAllowed
-      ?"Make one materially corrected SPL attempt; do not repeat the failed query."
-      :"Stop searching for this failure and explain the limitation to the analyst.",
+      ?"Use the exact error and available Splunk knowledge to make one materially corrected SPL attempt. Continue correcting query errors automatically, one query at a time; do not repeat the failed query or ask the analyst to fix it."
+      :"This error is an external blocker or the automatic repair limit was reached. Explain the specific limitation and what it means for the evidence.",
     recoveryNotes:typed?.recoveryNotes??[],
   };
 }
@@ -819,7 +819,11 @@ export async function investigate(
   let automaticRetries=0;
   let recoveryPending=false;
   let recoveryStopped=false;
+  let emptyBaselineCheckPending=false;
+  let emptyBaselineCheckUsed=false;
   let failedRecoveryKey="";
+  const recoveryAttemptsLimit=AGENT_CONFIG.maxAutomaticQueryRepairsPerTurn;
+  const toolRoundLimit=searchBudget.maxToolRounds+recoveryAttemptsLimit;
   const searchErrors:string[]=[];
   const recoveryNotes:string[]=[];
   let finalizationError="";
@@ -827,7 +831,7 @@ export async function investigate(
   while(
     searchCount<searchBudget.maxSearchesPerTurn &&
     searchAttempts<searchBudget.maxSearchAttemptsPerTurn &&
-    toolRounds<searchBudget.maxToolRounds
+    toolRounds<toolRoundLimit
   ){
     const calls=(response.output??[]).filter(
       (item)=>item.type==="function_call"&&item.name==="search_splunk",
@@ -839,7 +843,10 @@ export async function investigate(
     const outputs:unknown[]=[];
     const recoveryRound=recoveryPending;
     if(recoveryRound) recoveryPending=false;
+    const emptyBaselineCheckRound=emptyBaselineCheckPending;
+    if(emptyBaselineCheckRound) emptyBaselineCheckPending=false;
     let recoveryCallTaken=false;
+    let emptyBaselineCheckCallTaken=false;
 
     for(const call of calls){
       if(!call.call_id) continue;
@@ -852,11 +859,27 @@ export async function investigate(
         continue;
       }
 
-      if(recoveryRound&&recoveryCallTaken){
-        recoveryNotes.push("Only the first proposed correction search was executed; additional simultaneous searches were withheld.");
+      if(recoveryPending&&!recoveryRound){
         outputs.push(blockedSearchOutput(
           call.call_id,
-          "Only one correction search is allowed for this error. Use its result before proposing any further search.",
+          "A preceding search in this response failed. Correct that query first and use the error before starting another search.",
+        ));
+        continue;
+      }
+
+      if(recoveryRound&&recoveryCallTaken){
+        recoveryNotes.push("Only the first proposed correction search was executed; additional simultaneous searches were withheld so each correction can use the previous error.");
+        outputs.push(blockedSearchOutput(
+          call.call_id,
+          "Only one correction search is allowed at a time. Use its result before proposing another corrected query.",
+        ));
+        continue;
+      }
+
+      if(emptyBaselineCheckRound&&emptyBaselineCheckCallTaken){
+        outputs.push(blockedSearchOutput(
+          call.call_id,
+          "Only one verification search is allowed for the zero-result baseline. Use its result before searching further.",
         ));
         continue;
       }
@@ -881,24 +904,35 @@ export async function investigate(
         recoveryCallTaken=true;
         recoveryAttempts++;
       }
+      if(emptyBaselineCheckRound) emptyBaselineCheckCallTaken=true;
 
       let attemptedKey="";
       try{
         if(!call.arguments){
-          throw new Error("The Splunk search call did not include query arguments.");
+          throw new SplunkSearchError(
+            {status:400,body:JSON.stringify({detail:"The Splunk search call did not include query arguments."})},
+            "model_repair_once",
+          );
         }
-        const args=JSON.parse(call.arguments) as {
+        let args:{
           query:string;
           reason:string;
           phase:"baseline"|"pivot"|"confirmation";
         };
-
-        if(typeof args.query!=="string"||!args.query.trim()){
-          throw new Error("The Splunk search query is missing or empty.");
+        try{
+          args=JSON.parse(call.arguments) as typeof args;
+        }catch{
+          throw new SplunkSearchError(
+            {status:400,body:JSON.stringify({detail:"The Splunk search call contained malformed arguments."})},
+            "model_repair_once",
+          );
         }
 
-        if(args.query.length>AGENT_CONFIG.maxQueryChars){
-          throw new Error("Search query exceeds the agent query budget.");
+        if(typeof args.query!=="string"||!args.query.trim()){
+          throw new SplunkSearchError(
+            {status:400,body:JSON.stringify({detail:"The Splunk search query is missing or empty."})},
+            "model_repair_once",
+          );
         }
 
         const key=normalizeSearchKey(
@@ -909,12 +943,20 @@ export async function investigate(
         attemptedKey=key;
 
         if(isRecoveryCall&&key===failedRecoveryKey){
-          const message="The one allowed correction attempt repeated the same SPL. No duplicate Splunk request was sent.";
+          const message="This correction repeated the same SPL that already failed. No duplicate Splunk request was sent; revise the query using the specific error before trying again.";
           searchErrors.push(message);
           recoveryNotes.push(message);
-          recoveryStopped=true;
+          recoveryPending=recoveryAttempts<recoveryAttemptsLimit;
+          recoveryStopped=!recoveryPending;
           outputs.push(blockedSearchOutput(call.call_id,message));
           continue;
+        }
+
+        if(args.query.length>AGENT_CONFIG.maxQueryChars){
+          throw new SplunkSearchError(
+            {status:400,body:JSON.stringify({detail:"Search query exceeds the agent query budget."})},
+            "model_repair_once",
+          );
         }
 
         let result=cache.get(key);
@@ -939,8 +981,15 @@ export async function investigate(
         automaticRetries+=result.recoveryNotes.length;
         recoveryNotes.push(...result.recoveryNotes);
         const searchRecoveryNotes=[...result.recoveryNotes];
+        const emptyBaselineGuidance=args.phase==="baseline"&&result.results.length===0
+          ?"This baseline returned no rows. Before concluding no activity exists, verify the index, sourcetype, field names, target values, and approved time window, then run one materially different safe query if the available knowledge supports it."
+          :undefined;
+        if(args.phase==="baseline"&&result.results.length===0&&!emptyBaselineCheckUsed){
+          emptyBaselineCheckUsed=true;
+          emptyBaselineCheckPending=true;
+        }
         if(isRecoveryCall){
-          const note="The AI changed the SPL after a recognized search error; its single correction attempt succeeded.";
+          const note="The AI corrected the SPL after a recognized search error and the corrected search succeeded.";
           searchRecoveryNotes.push(note);
           recoveryNotes.push(note);
           failedRecoveryKey="";
@@ -974,6 +1023,7 @@ export async function investigate(
             truncated:result.truncated,
             cached,
             recoveryNotes:result.recoveryNotes,
+            nextStep:emptyBaselineGuidance,
             results:result.results,
           }),
         });
@@ -987,16 +1037,17 @@ export async function investigate(
 
         const mayRepair=error instanceof SplunkSearchError&&
           error.recovery==="model_repair_once"&&
-          !isRecoveryCall&&
-          recoveryAttempts===0&&
+          recoveryAttempts<recoveryAttemptsLimit&&
           !recoveryPending;
         if(mayRepair){
           recoveryPending=true;
           failedRecoveryKey=attemptedKey;
         }else{
           recoveryStopped=true;
-          if(isRecoveryCall){
-            recoveryNotes.push("The one allowed AI query correction did not resolve the error; no further searches were sent.");
+          if(isRecoveryCall&&error instanceof SplunkSearchError&&error.recovery==="model_repair_once"&&recoveryAttempts>=recoveryAttemptsLimit){
+            recoveryNotes.push("The automatic query-repair limit was reached; no further Splunk requests were sent in this turn.");
+          }else if(isRecoveryCall){
+            recoveryNotes.push("The corrected query encountered an external or non-repairable error; the error details are included for the analyst.");
           }
         }
         outputs.push({
@@ -1018,7 +1069,11 @@ export async function investigate(
       conversationInput,
       recoveryStopped?[]:[searchTool],
       undefined,
-      recoveryStopped?"none":undefined,
+      recoveryStopped
+        ?"none"
+        :recoveryPending||emptyBaselineCheckPending
+          ?{type:"function",name:"search_splunk"}
+          :undefined,
       options,
     );
     if(recoveryStopped) break;
@@ -1028,7 +1083,7 @@ export async function investigate(
   const reachedLimit=
     searchCount>=searchBudget.maxSearchesPerTurn||
     searchAttempts>=searchBudget.maxSearchAttemptsPerTurn||
-    toolRounds>=searchBudget.maxToolRounds;
+    toolRounds>=toolRoundLimit;
 
   if(!finalMessage&&(reachedLimit||recoveryStopped||recoveryPending)){
     try{
@@ -1077,9 +1132,9 @@ export async function investigate(
     finalMessage+="\n\n### Splunk search recovery\n"+
       "Completed searches: "+searchCount+"/"+searchBudget.maxSearchesPerTurn+". "+
       "Attempts: "+searchAttempts+"/"+searchBudget.maxSearchAttemptsPerTurn+". "+
-      "AI corrections: "+recoveryAttempts+"/1. Automatic API retries: "+automaticRetries+"."+
+      "AI corrections: "+recoveryAttempts+"/"+recoveryAttemptsLimit+". Automatic API retries: "+automaticRetries+"."+
       (searchErrors.length?"\n\nEncountered "+searchErrors.length+" failed attempt(s); failed attempts do not consume the completed-search budget.":"")+
-      (recoveryPending&&!recoveryAttempts?"\n\nThe AI did not request the single available SPL correction attempt.":"")+
+      (recoveryPending?"\n\nAn automatic SPL correction is still pending.":"")+
       (uniqueRecoveryNotes.length?"\n\n"+uniqueRecoveryNotes.map((note)=>"- "+note).join("\n"):"")+
       (uniqueErrors.length?"\n\n"+uniqueErrors.map((error)=>"- "+error).join("\n"):"");
   }
@@ -1097,9 +1152,9 @@ export async function investigate(
       searchAttempts,
       searchLimit:searchBudget.maxSearchesPerTurn,
       toolRounds,
-      toolRoundLimit:searchBudget.maxToolRounds,
+      toolRoundLimit,
       recoveryAttemptsUsed:recoveryAttempts,
-      recoveryAttemptsLimit:1,
+      recoveryAttemptsLimit,
       automaticRetries,
     },
   };
